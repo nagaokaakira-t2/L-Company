@@ -22,19 +22,24 @@
   <main id="layout">
     <section id="abnormality-panel" class="panel">
       <h2>幻想体（アブノーマリティ）</h2>
-      <div id="abnormality-list" class="grid"></div>
+      <div id="abnormality-list" class="ab-list"></div>
     </section>
 
     <section id="staff-panel" class="panel">
-      <h2>職員</h2>
-      <div id="staff-list" class="grid"></div>
-    </section>
-
-    <section id="log-panel" class="panel">
-      <h2>運営ログ</h2>
-      <div id="log-box" class="log"></div>
+      <div class="panel-head-row">
+        <h2>職員</h2>
+      </div>
+      <div id="staff-list" class="staff-list"></div>
     </section>
   </main>
+
+  <section id="log-panel" class="panel log-panel">
+    <div class="panel-head-row">
+      <h2>運営ログ</h2>
+      <button id="log-toggle-btn" class="btn small ghost">閉じる</button>
+    </div>
+    <div id="log-box" class="log"></div>
+  </section>
 
   <div id="detail-modal" class="modal hidden"></div>
   <div id="combat-modal" class="modal hidden"></div>
