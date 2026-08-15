@@ -3,7 +3,7 @@
 // DOM描画専用モジュール（フレームワーク不使用の素朴なレンダラー）
 // ============================================================
 
-import { WORK_TYPES, WORK_LABEL } from "../data/abnormalities.js";
+import { WORK_TYPES, WORK_LABEL, classificationCode, getIntroLines } from "../data/abnormalities.js";
 import { STAT_LABEL, statTotal } from "../data/staff.js";
 import { RANK_VALUE } from "../systems/damage.js";
 import { unlockCost, egoExtractCost, egoMaxCount } from "../data/ego.js";
@@ -63,6 +63,12 @@ function rankIcon(rank, cls) {
   return img(RANK_ICON[rank], cls || "icon-md", rank);
 }
 
+// 名前が未解禁の間は、ランクアイコンの代わりに「？」アイコンを表示する
+function rankIconOrUnknown(ab, cls) {
+  if (!ab.unlockedInfo.name) return img("assets/rank_unknown.svg", cls || "icon-md", "未観測");
+  return rankIcon(ab.rank, cls);
+}
+
 function bar(value, max, cls) {
   const wrap = el("div", `bar-wrap ${cls || ""}`);
   const fill = el("div", "bar-fill");
@@ -87,118 +93,178 @@ export function renderLog(state) {
   }
 }
 
-export function renderAbnormalities(state, { onWork, onOpenDetail }) {
+const TIER_CAPACITY = 10; // 1段あたりの収容数（5体 × 2列）
+const TIER_LABELS = ["収容区画 上段", "収容区画 下段", "収容区画 下段2", "収容区画 下段3", "収容区画 下段4"];
+
+export function renderAbnormalities(state, { onWork, onOpenDetail, selection, onSelectionChange }) {
   const container = document.getElementById("abnormality-list");
   container.innerHTML = "";
 
-  for (const ab of state.abnormalities) {
-    const card = el("div", "card ab-card" + (ab.breached ? " breached" : ""));
-    const head = el("div", "card-head");
-    head.appendChild(rankIcon(ab.rank, "icon-lg"));
-    const nameWrap = el("div", "name-wrap");
-    nameWrap.appendChild(rankBadge(ab.rank));
-    nameWrap.appendChild(el("span", "ab-name", ab.unlockedInfo.name ? ab.name : ab.codename));
-    head.appendChild(nameWrap);
-    head.appendChild(img(DAMAGE_ICON[ab.damageType], "icon-sm damage-icon", ab.damageType));
-    card.appendChild(head);
+  // 5体ごとに縦列を折り返し、10体（2列）ごとに新しい「段」を作る
+  for (let tierStart = 0; tierStart < state.abnormalities.length; tierStart += TIER_CAPACITY) {
+    const tierAbs = state.abnormalities.slice(tierStart, tierStart + TIER_CAPACITY);
+    const tierIndex = tierStart / TIER_CAPACITY;
 
-    card.appendChild(el("div", "flavor", ab.flavor));
+    const tierWrap = el("div", "ab-tier");
+    tierWrap.appendChild(el("h3", "tier-label", TIER_LABELS[tierIndex] || `収容区画 下段${tierIndex}`));
+    const grid = el("div", "ab-tier-grid");
 
-    if (ab.breached) {
-      card.appendChild(el("div", "warn", `⚠ 暴走中（${ab.breachType === "escape" ? "脱走" : "能力発動"}）`));
-    } else {
-      const moodRow = el("div", "stat-row");
-      moodRow.appendChild(el("span", "stat-label", "機嫌"));
-      moodRow.appendChild(bar(ab.mood, ab.maxMood, "mood"));
-      moodRow.appendChild(el("span", "stat-num", `${ab.mood}/${ab.maxMood}`));
-      card.appendChild(moodRow);
+    for (const ab of tierAbs) {
+      const observed = ab.unlockedInfo.name;
+      const card = el("div", "card ab-card" + (ab.breached ? " breached" : "") + (!observed ? " unobserved" : ""));
+      const head = el("div", "card-head");
+      head.appendChild(rankIconOrUnknown(ab, "icon-lg"));
+      const nameWrap = el("div", "name-wrap");
+      if (observed) {
+        nameWrap.appendChild(rankBadge(ab.rank));
+        nameWrap.appendChild(el("span", "ab-name", ab.name));
+      } else {
+        nameWrap.appendChild(el("span", "class-code", ab.classCode));
+      }
+      head.appendChild(nameWrap);
+      if (observed) head.appendChild(img(DAMAGE_ICON[ab.damageType], "icon-sm damage-icon", ab.damageType));
+      card.appendChild(head);
 
-      const qRow = el("div", "stat-row");
-      qRow.appendChild(el("span", "stat-label", "クリフォト"));
-      qRow.appendChild(bar(ab.qliphoth, ab.qliphothMax, "qliphoth"));
-      qRow.appendChild(el("span", "stat-num", `${ab.qliphoth}/${ab.qliphothMax}`));
-      card.appendChild(qRow);
-
-      const staffSelect = el("select", "staff-select");
-      staffSelect.dataset.abId = ab.id;
-      for (const s of state.staffList) {
-        if (!s.alive || !s.sane) continue;
-        const opt = el("option", null, `${s.name} (Lv${s.level})`);
-        opt.value = s.id;
-        staffSelect.appendChild(opt);
+      if (observed) {
+        card.appendChild(el("div", "flavor", ab.flavor));
+      } else {
+        const introBox = el("div", "intro-lines");
+        for (const line of getIntroLines(ab)) {
+          introBox.appendChild(el("div", "intro-line", line));
+        }
+        card.appendChild(introBox);
       }
 
-      const workSelect = el("select", "work-select");
-      for (const w of WORK_TYPES) {
-        const opt = el("option", null, WORK_LABEL[w]);
-        opt.value = w;
-        if (w === ab.preferredWork) opt.textContent += " ◎好み";
-        if (w === ab.dislikedWork) opt.textContent += " ×嫌い";
-        workSelect.appendChild(opt);
+      if (ab.breached) {
+        card.appendChild(el("div", "warn", `⚠ 暴走中（${ab.breachType === "escape" ? "脱走" : "能力発動"}）`));
+      } else {
+        const moodRow = el("div", "stat-row");
+        moodRow.appendChild(el("span", "stat-label", "機嫌"));
+        moodRow.appendChild(bar(ab.mood, ab.maxMood, "mood"));
+        moodRow.appendChild(el("span", "stat-num", `${ab.mood}/${ab.maxMood}`));
+        card.appendChild(moodRow);
+
+        const qRow = el("div", "stat-row");
+        qRow.appendChild(el("span", "stat-label", "クリフォト"));
+        qRow.appendChild(bar(ab.qliphoth, ab.qliphothMax, "qliphoth"));
+        qRow.appendChild(el("span", "stat-num", `${ab.qliphoth}/${ab.qliphothMax}`));
+        card.appendChild(qRow);
+
+        const sel = selection[ab.id] || {};
+
+        const staffSelect = el("select", "staff-select");
+        staffSelect.dataset.abId = ab.id;
+        for (const s of state.staffList) {
+          if (!s.alive || !s.sane) continue;
+          const opt = el("option", null, `${s.name} (Lv${s.level})`);
+          opt.value = s.id;
+          staffSelect.appendChild(opt);
+        }
+        if (sel.staff && staffSelect.querySelector(`option[value="${sel.staff}"]`)) {
+          staffSelect.value = sel.staff;
+        }
+        staffSelect.onchange = () => onSelectionChange(ab.id, "staff", staffSelect.value);
+
+        const workSelect = el("select", "work-select");
+        for (const w of WORK_TYPES) {
+          const opt = el("option", null, WORK_LABEL[w]);
+          opt.value = w;
+          if (w === ab.preferredWork) opt.textContent += " ◎好み";
+          if (w === ab.dislikedWork) opt.textContent += " ×嫌い";
+          workSelect.appendChild(opt);
+        }
+        if (sel.work) workSelect.value = sel.work;
+        workSelect.onchange = () => onSelectionChange(ab.id, "work", workSelect.value);
+
+        const workBtn = el("button", "btn small", "作業実行");
+        workBtn.onclick = () => {
+          if (!staffSelect.value) return;
+          onWork(staffSelect.value, ab.id, workSelect.value);
+        };
+
+        const controls = el("div", "controls");
+        controls.appendChild(staffSelect);
+        controls.appendChild(workSelect);
+        controls.appendChild(workBtn);
+        card.appendChild(controls);
+
+        const detailBtn = el("button", "btn small ghost", "詳細を見る（情報開示／EGO抽出）");
+        detailBtn.onclick = () => onOpenDetail(ab.id);
+        card.appendChild(detailBtn);
+
+        const infoRow = el("div", "info-row", `情報ポイント: ${ab.infoPoints}`);
+        card.appendChild(infoRow);
       }
 
-      const workBtn = el("button", "btn small", "作業実行");
-      workBtn.onclick = () => {
-        if (!staffSelect.value) return;
-        onWork(staffSelect.value, ab.id, workSelect.value);
-      };
-
-      const controls = el("div", "controls");
-      controls.appendChild(staffSelect);
-      controls.appendChild(workSelect);
-      controls.appendChild(workBtn);
-      card.appendChild(controls);
-
-      const detailBtn = el("button", "btn small ghost", "詳細を見る（情報開示／EGO抽出）");
-      detailBtn.onclick = () => onOpenDetail(ab.id);
-      card.appendChild(detailBtn);
-
-      const infoRow = el("div", "info-row", `情報ポイント: ${ab.infoPoints}`);
-      card.appendChild(infoRow);
+      grid.appendChild(card);
     }
 
-    container.appendChild(card);
+    tierWrap.appendChild(grid);
+    container.appendChild(tierWrap);
   }
 }
 
-export function renderStaff(state, { onEquipWeapon, onEquipArmor }) {
+export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, onToggleExpand }) {
   const container = document.getElementById("staff-list");
   container.innerHTML = "";
   const inventory = state.egoInventory || [];
 
   for (const s of state.staffList) {
-    const card = el("div", "card staff-card" + (!s.alive ? " dead" : !s.sane ? " insane" : "") + (s.panic ? " panicking" : ""));
-    const head = el("div", "card-head");
-    head.appendChild(img("assets/staff_avatar.svg", "icon-lg", s.name));
-    const nameWrap = el("div", "name-wrap");
-    nameWrap.appendChild(el("span", "ab-name", s.name));
-    nameWrap.appendChild(el("span", "lv-badge", `Lv${s.level}`));
-    head.appendChild(nameWrap);
-    card.appendChild(head);
-    if (s.panic) card.appendChild(el("div", "warn", "⚠ パニック状態"));
+    const expanded = expandedIds.has(s.id);
+    const card = el(
+      "div",
+      "card staff-card" +
+        (!s.alive ? " dead" : !s.sane ? " insane" : "") +
+        (s.panic ? " panicking" : "") +
+        (expanded ? " expanded" : " collapsed")
+    );
+
+    const toggleBtn = el("button", "staff-toggle-btn");
+    toggleBtn.appendChild(img("assets/staff_avatar.svg", "icon-md"));
+    const label = el("span", "staff-toggle-label");
+    label.appendChild(el("span", "ab-name", s.name));
+    label.appendChild(el("span", "lv-badge", `Lv${s.level}`));
+    if (!s.alive) label.appendChild(el("span", "tag-done warn-tag", "殉職"));
+    else if (!s.sane) label.appendChild(el("span", "tag-done warn-tag", "精神崩壊"));
+    else if (s.panic) label.appendChild(el("span", "tag-done warn-tag", "パニック"));
+    else label.appendChild(el("span", "mini-hp", `HP ${s.hp.toFixed(0)}/${s.maxHp}`));
+    toggleBtn.appendChild(label);
+    toggleBtn.appendChild(el("span", "chevron", expanded ? "▲" : "▼"));
+    toggleBtn.onclick = () => onToggleExpand(s.id);
+    card.appendChild(toggleBtn);
+
+    if (!expanded) {
+      container.appendChild(card);
+      continue;
+    }
+
+    const body = el("div", "staff-body");
 
     if (!s.alive) {
-      card.appendChild(el("div", "warn", "殉職"));
+      body.appendChild(el("div", "warn", "殉職"));
+      card.appendChild(body);
       container.appendChild(card);
       continue;
     }
     if (!s.sane) {
-      card.appendChild(el("div", "warn", "精神崩壊"));
+      body.appendChild(el("div", "warn", "精神崩壊"));
+      card.appendChild(body);
       container.appendChild(card);
       continue;
     }
+    if (s.panic) body.appendChild(el("div", "warn", "⚠ パニック状態"));
 
     const hpRow = el("div", "stat-row");
     hpRow.appendChild(el("span", "stat-label", "HP"));
     hpRow.appendChild(bar(s.hp, s.maxHp, "hp"));
     hpRow.appendChild(el("span", "stat-num", `${s.hp.toFixed(0)}/${s.maxHp}`));
-    card.appendChild(hpRow);
+    body.appendChild(hpRow);
 
     const spRow = el("div", "stat-row");
     spRow.appendChild(el("span", "stat-label", "SP"));
     spRow.appendChild(bar(s.sp, s.maxSp, "sp"));
     spRow.appendChild(el("span", "stat-num", `${s.sp.toFixed(0)}/${s.maxSp}`));
-    card.appendChild(spRow);
+    body.appendChild(spRow);
 
     const statLine = el(
       "div",
@@ -207,14 +273,14 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor }) {
         .map((k) => `${STAT_LABEL[k]}${s.stats[k]}`)
         .join(" / ")
     );
-    card.appendChild(statLine);
+    body.appendChild(statLine);
 
     const equipLine = el("div", "equip-line");
     equipLine.appendChild(img("assets/ego_weapon.svg", "icon-xs"));
     equipLine.appendChild(document.createTextNode(` ${s.equippedWeapon?.name ?? "なし"}　`));
     equipLine.appendChild(img("assets/ego_armor.svg", "icon-xs"));
     equipLine.appendChild(document.createTextNode(` ${s.equippedArmor?.name ?? "なし"}`));
-    card.appendChild(equipLine);
+    body.appendChild(equipLine);
 
     const weapons = inventory.filter((i) => i.type === "weapon");
     const armors = inventory.filter((i) => i.type === "armor");
@@ -230,7 +296,7 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor }) {
       wSelect.onchange = () => {
         if (wSelect.value) onEquipWeapon(s.id, wSelect.value);
       };
-      card.appendChild(wSelect);
+      body.appendChild(wSelect);
     }
     if (armors.length) {
       const aSelect = el("select", "equip-select");
@@ -243,12 +309,13 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor }) {
       aSelect.onchange = () => {
         if (aSelect.value) onEquipArmor(s.id, aSelect.value);
       };
-      card.appendChild(aSelect);
+      body.appendChild(aSelect);
     }
     if (!weapons.length && !armors.length) {
-      card.appendChild(el("div", "info-row", "（抽出済みE.G.O装備はまだない）"));
+      body.appendChild(el("div", "info-row", "（抽出済みE.G.O装備はまだない）"));
     }
 
+    card.appendChild(body);
     container.appendChild(card);
   }
 }
@@ -270,18 +337,29 @@ export function renderDetailModal(state, abnormalityId, { onUnlock, onExtract, o
   modal.classList.remove("hidden");
   modal.innerHTML = "";
 
+  const observed = ab.unlockedInfo.name;
   const box = el("div", "modal-box");
   const head = el("div", "card-head");
-  head.appendChild(rankIcon(ab.rank, "icon-xl"));
+  head.appendChild(rankIconOrUnknown(ab, "icon-xl"));
   const nameWrap = el("div", "name-wrap");
-  nameWrap.appendChild(rankBadge(ab.rank));
-  nameWrap.appendChild(el("h2", null, ab.unlockedInfo.name ? ab.name : ab.codename));
+  if (observed) {
+    nameWrap.appendChild(rankBadge(ab.rank));
+    nameWrap.appendChild(el("h2", null, ab.name));
+  } else {
+    nameWrap.appendChild(el("h2", null, ab.classCode));
+  }
   head.appendChild(nameWrap);
-  head.appendChild(img(DAMAGE_ICON[ab.damageType], "icon-md", ab.damageType));
+  if (observed) head.appendChild(img(DAMAGE_ICON[ab.damageType], "icon-md", ab.damageType));
   box.appendChild(head);
 
-  box.appendChild(el("p", "flavor", ab.flavor));
-  box.appendChild(el("p", "info-row", `分類: ${ab.breachType === "escape" ? "脱走型" : "能力発動型"} ／ 属性: ${ab.damageType}`));
+  if (observed) {
+    box.appendChild(el("p", "flavor", ab.flavor));
+    box.appendChild(el("p", "info-row", `分類: ${ab.breachType === "escape" ? "脱走型" : "能力発動型"} ／ 属性: ${ab.damageType}`));
+  } else {
+    const introBox = el("div", "intro-lines");
+    for (const line of getIntroLines(ab)) introBox.appendChild(el("div", "intro-line", line));
+    box.appendChild(introBox);
+  }
   box.appendChild(el("h3", null, `情報ポイント: ${ab.infoPoints}`));
 
   // ── 情報開示 ──
@@ -435,11 +513,12 @@ export function renderCandidateModal(candidates, { onChoose }) {
   for (const c of candidates) {
     const card = el("div", "card candidate-card");
     const chead = el("div", "card-head");
-    chead.appendChild(rankIcon(c.rank, "icon-md"));
-    chead.appendChild(rankBadge(c.rank));
+    chead.appendChild(img("assets/rank_unknown.svg", "icon-md", "未観測"));
+    chead.appendChild(el("span", "class-code", classificationCode(c.id)));
     card.appendChild(chead);
-    card.appendChild(el("div", "ab-name", c.codename));
-    card.appendChild(el("div", "flavor", c.flavor));
+    const introBox = el("div", "intro-lines");
+    for (const line of getIntroLines(c)) introBox.appendChild(el("div", "intro-line", line));
+    card.appendChild(introBox);
     const chooseBtn = el("button", "btn small", "この幻想体を選ぶ");
     chooseBtn.onclick = () => onChoose(c.id);
     card.appendChild(chooseBtn);
