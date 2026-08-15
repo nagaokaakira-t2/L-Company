@@ -129,18 +129,29 @@ export function tickCombat(session, abnormalityLike, staffList) {
 /**
  * 試練（Trial）: 一定日数ごとに発生する不明な敵の襲撃。
  * 鎮圧戦闘と同じロジックを再利用しつつ、専用の敵ステータスを生成する。
+ * WAW/ALEPH級、およびPALE属性の試練は15日目以降にのみ出現する（初心者への配慮）。
  */
+const HIGH_TIER_UNLOCK_DAY = 15;
+
 export function createTrialEnemy(day) {
-  const scaledRankIdx = Math.min(4, Math.floor(day / 10));
   const ranks = ["ZAYIN", "TETH", "HE", "WAW", "ALEPH"];
+  const maxRankIdx = day >= HIGH_TIER_UNLOCK_DAY ? 4 : 2; // 15日目未満はHEまでに制限
+  let scaledRankIdx = Math.min(maxRankIdx, Math.floor(day / 8));
+  scaledRankIdx = Math.max(0, scaledRankIdx);
   const rank = ranks[scaledRankIdx];
   const rankMultiplier = 1 + scaledRankIdx * 0.6;
+
+  const damageTypes = day >= HIGH_TIER_UNLOCK_DAY
+    ? ["RED", "WHITE", "BLACK", "PALE"]
+    : ["RED", "WHITE", "BLACK"]; // PALEは15日目未満は出現しない
+  const damageType = damageTypes[Math.floor(Math.random() * damageTypes.length)];
+
   return {
     id: `trial_day_${day}`,
     name: `試練の侵入者（${day}日目）`,
     rank,
     baseAttack: Math.round(15 * rankMultiplier),
-    damageType: ["RED", "WHITE", "BLACK", "PALE"][Math.floor(Math.random() * 4)],
+    damageType,
     resistance: { RED: 0.9, WHITE: 0.9, BLACK: 0.9, PALE: 0.9 },
   };
 }
