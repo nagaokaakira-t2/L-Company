@@ -38,6 +38,8 @@ let candidateChoices = null;
 let detailAbnormalityId = null;
 let qliphothTimer = null;
 let trialTimer = null;
+let uiSelection = {}; // { [abnormalityId]: { staff, work } } — 再描画をまたいで作業実行の選択を保持する
+let expandedStaffIds = new Set(); // 職員パネルで展開中のID
 
 function checkGameOver() {
   const anyUsable = state.staffList.some((s) => s.alive && s.sane);
@@ -49,8 +51,18 @@ function checkGameOver() {
 function renderAll() {
   renderHeader(state);
   renderLog(state);
-  renderAbnormalities(state, { onWork: handleWork, onOpenDetail: handleOpenDetail });
-  renderStaff(state, { onEquipWeapon: handleEquipWeapon, onEquipArmor: handleEquipArmor });
+  renderAbnormalities(state, {
+    onWork: handleWork,
+    onOpenDetail: handleOpenDetail,
+    selection: uiSelection,
+    onSelectionChange: handleSelectionChange,
+  });
+  renderStaff(state, {
+    onEquipWeapon: handleEquipWeapon,
+    onEquipArmor: handleEquipArmor,
+    expandedIds: expandedStaffIds,
+    onToggleExpand: handleToggleStaffExpand,
+  });
   renderDetailModal(state, detailAbnormalityId, {
     onUnlock: handleUnlock,
     onExtract: handleExtract,
@@ -62,6 +74,19 @@ function renderAll() {
 }
 
 // ───────── イベントハンドラ ─────────
+
+// 作業実行の職員/作業選択は再描画をまたいで保持する（handleWork等でrenderAll()が
+// 呼ばれてもプルダウンの選択状態がリセットされないようにするため）
+function handleSelectionChange(abnormalityId, field, value) {
+  uiSelection[abnormalityId] = { ...uiSelection[abnormalityId], [field]: value };
+  // DOM側は既にユーザー操作で更新済みのため、ここでは状態保持のみ行い re-render はしない
+}
+
+function handleToggleStaffExpand(staffId) {
+  if (expandedStaffIds.has(staffId)) expandedStaffIds.delete(staffId);
+  else expandedStaffIds.add(staffId);
+  renderAll();
+}
 
 function handleWork(staffId, abnormalityId, workType) {
   if (state.gameOver || state.cleared) return;
@@ -186,6 +211,13 @@ function handleHireStaff() {
   renderAll();
 }
 
+function handleToggleLog() {
+  const box = document.getElementById("log-box");
+  const btn = document.getElementById("log-toggle-btn");
+  const collapsed = box.classList.toggle("collapsed");
+  btn.textContent = collapsed ? "開く" : "閉じる";
+}
+
 // ───────── リアルタイムティック ─────────
 
 function startTimers() {
@@ -221,6 +253,7 @@ function init() {
 
   document.getElementById("end-day-btn").onclick = handleEndDayClick;
   document.getElementById("hire-btn").onclick = handleHireStaff;
+  document.getElementById("log-toggle-btn").onclick = handleToggleLog;
 
   startTimers();
   renderAll();
