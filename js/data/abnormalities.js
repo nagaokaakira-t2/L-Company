@@ -22,6 +22,77 @@ export const BREACH_TYPE = {
 // ランクごとの既定クリフォト猶予（放置できるターン数）
 const QLIPHOTH_BY_RANK = { ZAYIN: 8, TETH: 6, HE: 5, WAW: 4, ALEPH: 3 };
 
+// ============================================================
+// 分類番号（X-XX-XX）
+// X      : 根源 … O=Original / F=Fairy Tale / T=Trauma / D=Donator
+// XX(中) : タイプ … 01人型 02動物 03宗教・抽象・無機物 04植物・昆虫 05機械・器物 06不定形 09ツール型
+// XX(末) : そのカテゴリー内の固有シリアル番号
+// 名前が未解禁の間は、この番号と3行の観測前紹介文のみが表示される。
+// ============================================================
+const CLASS_CODE = {
+  silent_girl:          ["T", "01", 1],
+  paper_crane_flock:    ["F", "04", 1],
+  dripping_faucet:      ["O", "09", 1],
+  tea_stained_ghost:    ["T", "09", 1],
+  broken_umbrella:      ["O", "09", 2],
+  humming_kettle:       ["F", "09", 1],
+  clock_eater:          ["O", "05", 1],
+  crimson_scissors:     ["T", "09", 2],
+  veiled_bride:         ["F", "01", 1],
+  static_choir:         ["O", "03", 1],
+  iron_lung_child:      ["T", "05", 1],
+  hollow_choirmaster:   ["F", "01", 2],
+  red_shepherd:         ["F", "01", 3],
+  gilded_locust:        ["O", "04", 1],
+  drowned_orchestra:    ["F", "01", 4],
+  thorned_confessional: ["T", "09", 3],
+  porcelain_twins:      ["F", "01", 5],
+  black_tide_letter:    ["T", "09", 4],
+  white_womb:           ["O", "06", 1],
+  gallows_choir:        ["T", "05", 2],
+  weeping_cartographer: ["F", "01", 6],
+  iron_maiden_bloom:    ["T", "05", 3],
+  still_life_famine:    ["O", "03", 2],
+  hundred_eyed_curator: ["O", "01", 1],
+  black_maestro:        ["F", "01", 7],
+  cathedral_of_teeth:   ["T", "03", 1],
+  the_uncounted_hour:   ["O", "03", 3],
+  last_lullaby_engine:  ["T", "05", 4],
+  drowning_cityscape:   ["O", "05", 2],
+  the_final_appetite:   ["T", "02", 1],
+};
+
+export function classificationCode(id) {
+  const c = CLASS_CODE[id];
+  if (!c) return "?-00-00";
+  const [origin, type, serial] = c;
+  return `${origin}-${type}-${String(serial).padStart(2, "0")}`;
+}
+
+// 観測（名前解禁）前に表示する3行の紹介文を組み立てる
+const BREACH_INTRO_LINE = {
+  [BREACH_TYPE.ESCAPE]: "収容区画外への逸脱傾向を確認。接触時は要注意。",
+  [BREACH_TYPE.ABILITY]: "収容区画内からの干渉現象を確認。観測を継続する。",
+};
+const CLOSING_INTRO_POOL = [
+  "総務局による危険度評価は未完了。",
+  "本記録に関する追加情報は観測進行に伴い開示される。",
+  "現時点で得られている情報は限定的である。",
+  "職員の接触記録が乏しく、詳細は不明のままである。",
+];
+
+function hashString(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+export function getIntroLines(ab) {
+  const line2 = BREACH_INTRO_LINE[ab.breachType] ?? "特異な挙動が報告されている。";
+  const line3 = CLOSING_INTRO_POOL[hashString(ab.id) % CLOSING_INTRO_POOL.length];
+  return [ab.flavor, line2, line3];
+}
+
 export const ABNORMALITY_POOL = [
   // ───────── ZAYIN（安全）─────────
   {
@@ -258,6 +329,7 @@ export function instantiateAbnormality(id) {
   const qliphothMax = QLIPHOTH_BY_RANK[t.rank];
   return {
     ...t,
+    classCode: classificationCode(id),
     maxMood: 100,
     qliphothMax,
     mood: 70, // 機嫌値 0-100
