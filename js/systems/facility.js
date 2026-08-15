@@ -204,10 +204,14 @@ export function isQuotaMet(state) {
 
 /**
  * 次の管理対象候補を3体提示する（未収容のものからランダム抽出）
+ * WAW/ALEPH級は15日目以降にのみ候補に出現する
  */
 export function drawNextCandidates(state, count = 3) {
   const ownedIds = new Set(state.abnormalities.map((a) => a.id));
-  const pool = ABNORMALITY_POOL.filter((a) => !ownedIds.has(a.id));
+  let pool = ABNORMALITY_POOL.filter((a) => !ownedIds.has(a.id));
+  if (state.day < 15) {
+    pool = pool.filter((a) => a.rank !== "WAW" && a.rank !== "ALEPH");
+  }
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, count);
 }
