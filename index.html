@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>幻想体管理シミュレーター</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header id="top-bar">
+    <h1>幻想体管理シミュレーター</h1>
+    <div class="top-stats">
+      <span id="day-label">1 / 50 日目</span>
+      <span id="energy-label">エネルギー: 0 / 30</span>
+      <button id="end-day-btn" class="btn" disabled>1日を終える</button>
+      <button id="hire-btn" class="btn ghost">職員を雇用</button>
+    </div>
+  </header>
+
+  <div id="gameover-banner" class="hidden"></div>
+
+  <main id="layout">
+    <section id="abnormality-panel" class="panel">
+      <h2>幻想体（アブノーマリティ）</h2>
+      <div id="abnormality-list" class="grid"></div>
+    </section>
+
+    <section id="staff-panel" class="panel">
+      <h2>職員</h2>
+      <div id="staff-list" class="grid"></div>
+    </section>
+
+    <section id="log-panel" class="panel">
+      <h2>運営ログ</h2>
+      <div id="log-box" class="log"></div>
+    </section>
+  </main>
+
+  <div id="detail-modal" class="modal hidden"></div>
+  <div id="combat-modal" class="modal hidden"></div>
+  <div id="candidate-modal" class="modal hidden"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
