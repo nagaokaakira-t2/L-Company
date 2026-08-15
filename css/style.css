@@ -82,9 +82,9 @@ body {
 
 #layout {
   display: grid;
-  grid-template-columns: 1.4fr 1.2fr 0.9fr;
+  grid-template-columns: 1.6fr 1fr;
   gap: 16px;
-  padding: 16px;
+  padding: 16px 16px 8px;
   align-items: start;
 }
 
@@ -105,14 +105,73 @@ body {
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
 }
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 10px;
-  max-height: 74vh;
-  overflow-y: auto;
+.panel-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
 }
+.panel-head-row h2 { border-bottom: none; margin-bottom: 0; }
+
+/* ── 幻想体パネル: 5体ごとに縦列、10体ごとに新しい「段」 ── */
+.ab-list {
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tier-label {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+.ab-tier-grid {
+  display: grid;
+  grid-template-rows: repeat(5, auto);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(220px, 1fr);
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+/* ── 職員パネル: ボタン式アコーディオン ── */
+.staff-list {
+  max-height: 70vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.staff-card { padding: 0; overflow: hidden; }
+.staff-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: none;
+  color: var(--text);
+  padding: 8px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+.staff-toggle-btn:hover { background: #2a2f3d; }
+.staff-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.mini-hp { font-size: 0.72rem; color: var(--muted); margin-left: auto; }
+.warn-tag { color: var(--danger); margin-left: auto; }
+.chevron { color: var(--muted); font-size: 0.7rem; }
+.staff-body { padding: 8px 10px 10px; border-top: 1px solid var(--border); }
+.staff-card.collapsed .staff-toggle-label .ab-name { font-weight: bold; }
 
 .card {
   background: var(--card);
@@ -149,6 +208,19 @@ body {
 .lv-badge {
   font-size: 0.75rem;
   color: var(--muted);
+}
+.class-code {
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-family: "Courier New", monospace;
+}
+.card.unobserved { border-style: dashed; }
+.intro-lines { margin: 4px 0 8px; }
+.intro-line {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .icon-xs { width: 16px; height: 16px; vertical-align: middle; }
@@ -215,10 +287,18 @@ select {
 .stat-line { font-size: 0.75rem; color: var(--muted); margin: 4px 0; }
 .equip-line { font-size: 0.75rem; margin-bottom: 4px; }
 
+.log-panel {
+  margin: 0 16px 16px;
+}
 .log {
-  max-height: 74vh;
+  max-height: 30vh;
   overflow-y: auto;
   font-size: 0.78rem;
+  transition: max-height 0.2s ease;
+}
+.log.collapsed {
+  max-height: 0;
+  overflow: hidden;
 }
 .log-line {
   padding: 3px 0;
