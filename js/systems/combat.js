@@ -129,29 +129,35 @@ export function tickCombat(session, abnormalityLike, staffList) {
 /**
  * 試練（Trial）: 一定日数ごとに発生する不明な敵の襲撃。
  * 鎮圧戦闘と同じロジックを再利用しつつ、専用の敵ステータスを生成する。
- * WAW/ALEPH級、およびPALE属性の試練は15日目以降にのみ出現する（初心者への配慮）。
+ * 日数が進むほど連続する波（ウェーブ）の数が増える:
+ *   〜19日目: 1波（ZAYIN）
+ *   20〜24日目: 2波（ZAYIN→TETH）
+ *   25〜29日目: 3波（ZAYIN→TETH→HE）
+ *   30日目〜: 4波（ZAYIN→TETH→HE→WAW）
+ * ALEPH級は試練には出現しない。PALE属性は15日目未満は出現しない。
  */
 const HIGH_TIER_UNLOCK_DAY = 15;
 
-export function createTrialEnemy(day) {
-  const ranks = ["ZAYIN", "TETH", "HE", "WAW", "ALEPH"];
-  const maxRankIdx = day >= HIGH_TIER_UNLOCK_DAY ? 4 : 2; // 15日目未満はHEまでに制限
-  let scaledRankIdx = Math.min(maxRankIdx, Math.floor(day / 8));
-  scaledRankIdx = Math.max(0, scaledRankIdx);
-  const rank = ranks[scaledRankIdx];
-  const rankMultiplier = 1 + scaledRankIdx * 0.6;
+export function trialWaveRanks(day) {
+  if (day >= 30) return ["ZAYIN", "TETH", "HE", "WAW"];
+  if (day >= 25) return ["ZAYIN", "TETH", "HE"];
+  if (day >= 20) return ["ZAYIN", "TETH"];
+  return ["ZAYIN"];
+}
 
-  const damageTypes = day >= HIGH_TIER_UNLOCK_DAY
-    ? ["RED", "WHITE", "BLACK", "PALE"]
-    : ["RED", "WHITE", "BLACK"]; // PALEは15日目未満は出現しない
+const TRIAL_RANK_MULT = { ZAYIN: 1, TETH: 1.6, HE: 2.2, WAW: 2.8, ALEPH: 3.4 };
+
+export function createTrialWaveEnemy(rank, day, waveNumber) {
+  const damageTypes =
+    day >= HIGH_TIER_UNLOCK_DAY ? ["RED", "WHITE", "BLACK", "PALE"] : ["RED", "WHITE", "BLACK"];
   const damageType = damageTypes[Math.floor(Math.random() * damageTypes.length)];
-
   return {
-    id: `trial_day_${day}`,
-    name: `試練の侵入者（${day}日目）`,
+    id: `trial_day${day}_wave${waveNumber}`,
+    name: `試練 第${waveNumber}波（${rank}）`,
     rank,
-    baseAttack: Math.round(15 * rankMultiplier),
+    baseAttack: Math.round(15 * (TRIAL_RANK_MULT[rank] ?? 1)),
     damageType,
     resistance: { RED: 0.9, WHITE: 0.9, BLACK: 0.9, PALE: 0.9 },
+    isTrial: true,
   };
 }
