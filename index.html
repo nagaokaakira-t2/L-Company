@@ -12,7 +12,15 @@
     <div class="top-stats">
       <span id="day-label">1 / 50 日目</span>
       <span id="energy-label">エネルギー: 0 / 30</span>
+      <div class="speed-controls">
+        <button id="speed-pause-btn" class="btn" title="一時停止">⏸</button>
+        <button id="speed-1x-btn" class="btn active" title="等倍速">1x</button>
+        <button id="speed-2x-btn" class="btn" title="2倍速">2x</button>
+        <button id="speed-4x-btn" class="btn" title="4倍速">4x</button>
+      </div>
       <button id="end-day-btn" class="btn" disabled>1日を終える</button>
+      <button id="rewind-btn" class="btn ghost" title="時間遡行技術">⏪ 時間遡行</button>
+      <button id="codex-btn" class="btn ghost" title="図鑑">📖 図鑑</button>
       <button id="fullscreen-btn" class="btn ghost" title="全画面表示切替">⛶ 全画面</button>
     </div>
   </header>
@@ -45,6 +53,7 @@
   <div id="combat-modal" class="modal hidden"></div>
   <div id="candidate-modal" class="modal hidden"></div>
   <div id="dayend-modal" class="modal hidden"></div>
+  <div id="codex-modal" class="modal hidden"></div>
 
   <script type="module" src="js/main.js"></script>
 </body>
