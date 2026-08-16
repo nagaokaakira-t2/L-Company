@@ -376,6 +376,7 @@ function doQliphothTick() {
 }
 
 function doTrialTick() {
+  state.trialTriggeredToday = true; // 試練は1日1回のみ。同日中は再発生させない
   const ranks = trialWaveRanks(state.day);
   trialQueue = ranks.slice(1);
   trialWaveTotalNum = ranks.length;
@@ -409,7 +410,7 @@ function masterTick() {
       qliphothAcc -= QLIPHOTH_TICK_MS;
       doQliphothTick();
     }
-    if (!combatSession && trialAcc >= TRIAL_INTERVAL_MS) {
+    if (!combatSession && !state.trialTriggeredToday && trialAcc >= TRIAL_INTERVAL_MS) {
       trialAcc -= TRIAL_INTERVAL_MS;
       doTrialTick();
     }
