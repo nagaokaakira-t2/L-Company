@@ -35,6 +35,7 @@ export function createInitialState() {
     checkpoints: [], // { day, snapshot } チェックポイント（巻き戻し用）
     egoInventory: [], // 抽出済みE.G.O装備（武器/防具）の実体リスト
     dayStartSnapshot: null, // 時間遡行技術用: その日の開始時点の状態
+    trialTriggeredToday: false, // 試練は1日に1回のみ発生させるためのフラグ
   };
   return state;
 }
@@ -64,6 +65,7 @@ export function rewindDay(state) {
   state.abnormalities = JSON.parse(JSON.stringify(state.dayStartSnapshot.abnormalities));
   state.pendingBreach = null;
   state.gameOver = false;
+  state.trialTriggeredToday = false; // 日をやり直すので試練の権利も回復する
   log(state, `時間遡行技術を発動。${state.day}日目の開始時点まで状態を巻き戻した。`);
   return true;
 }
@@ -315,6 +317,7 @@ export function endDay(state, chosenAbnormalityId) {
   state.energy = 0;
   state.quota = BASE_QUOTA + QUOTA_GROWTH_PER_DAY * (state.day - 1) +
     Math.floor(Math.pow(state.day, 1.55));
+  state.trialTriggeredToday = false; // 新しい日になったので試練の権利がリセットされる
 
   for (const ab of state.abnormalities) {
     if (!ab.breached) ab.qliphoth = ab.qliphothMax;
