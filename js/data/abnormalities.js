@@ -60,7 +60,46 @@ const CLASS_CODE = {
   last_lullaby_engine:  ["T", "05", 4],
   drowning_cityscape:   ["O", "05", 2],
   the_final_appetite:   ["T", "02", 1],
+  // ── 能力発動型 追加分 ──
+  z_washbasin:          ["O", "09", 3],
+  z_wallpaper:          ["F", "03", 1],
+  z_broom:              ["O", "09", 4],
+  z_mailbox:            ["T", "09", 5],
+  t_bottle:             ["O", "09", 5],
+  t_specimen_shelf:     ["D", "05", 1],
+  t_fireplace:          ["T", "05", 5],
+  t_mirror:             ["F", "09", 2],
+  h_bookshelf:          ["O", "09", 6],
+  h_bathtub:            ["T", "09", 6],
+  h_compass_needle:     ["O", "05", 3],
+  h_lighthouse:         ["D", "05", 2],
+  w_attic:              ["T", "03", 2],
+  w_greenhouse:         ["F", "04", 2],
+  w_staircase:          ["O", "03", 4],
+  w_theater:            ["D", "01", 1],
 };
+
+// ============================================================
+// PE Box（作業結果評価）設定
+// 作業結果は GOOD / NORMAL / BAD の3段階で判定され、
+// クリフォトカウンターの増減量はランクごとの既定値（もしくは
+// 個別の peBoxOverride）に従う。ランクが高いほどGOODを引きにくく、
+// BADに転びやすく、増減幅も大きくなる（ハイリスク・ハイリターン）。
+// 個別の幻想体で挙動を変えたい場合は、そのオブジェクトに
+// `peBoxOverride: { goodThreshold, badThreshold, goodQliphothBonus, badQliphothPenalty }`
+// を追加すれば既定値を上書きできる。
+// ============================================================
+export function getPeBoxConfig(ab) {
+  if (ab.peBoxOverride) return ab.peBoxOverride;
+  const r = RANK_VALUE_LOCAL[ab.rank];
+  return {
+    goodThreshold: 0.72 + r * 0.02,
+    badThreshold: 0.30 + r * 0.02,
+    goodQliphothBonus: 1 + Math.ceil(r / 2),
+    badQliphothPenalty: 1 + Math.ceil(r / 2),
+  };
+}
+const RANK_VALUE_LOCAL = { ZAYIN: 1, TETH: 2, HE: 3, WAW: 4, ALEPH: 5 };
 
 export function classificationCode(id) {
   const c = CLASS_CODE[id];
@@ -312,6 +351,124 @@ export const ABNORMALITY_POOL = [
     damageType: "BLACK", baseAttack: 55,
     resistance: { RED: 0.5, WHITE: 0.5, BLACK: 0.3, PALE: 0.9 },
     flavor: "どれだけ捧げても、その食卓の皿は決して満たされない。",
+  },
+
+  // ───────── 能力発動型 追加分（ALEPHには追加しない）─────────
+  // ZAYIN
+  {
+    id: "z_washbasin", name: "凍える洗面器", codename: "波打つ洗面台の噂", rank: "ZAYIN",
+    preferredWork: "INSIGHT", dislikedWork: "INSTINCT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "WHITE", baseAttack: 7,
+    resistance: { RED: 1.1, WHITE: 0.7, BLACK: 1.0, PALE: 1.0 },
+    flavor: "蛇口を捻っていないのに、水面が独りでに波打つ。",
+  },
+  {
+    id: "z_wallpaper", name: "囁く壁紙", codename: "模様が動く部屋の噂", rank: "ZAYIN",
+    preferredWork: "ATTACHMENT", dislikedWork: "INSIGHT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "BLACK", baseAttack: 6,
+    resistance: { RED: 1.0, WHITE: 1.0, BLACK: 0.7, PALE: 1.1 },
+    flavor: "壁紙の柄が、瞬きの間に配置を変えている。",
+  },
+  {
+    id: "z_broom", name: "居眠りの箒", codename: "独りでに掃く箒の噂", rank: "ZAYIN",
+    preferredWork: "REPRESSION", dislikedWork: "ATTACHMENT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "RED", baseAttack: 6,
+    resistance: { RED: 0.8, WHITE: 1.0, BLACK: 1.0, PALE: 1.0 },
+    flavor: "誰も使っていないのに、箒の穂先だけが微かに動く。",
+  },
+  {
+    id: "z_mailbox", name: "錆びた郵便受け", codename: "届くはずのない手紙の噂", rank: "ZAYIN",
+    preferredWork: "INSTINCT", dislikedWork: "REPRESSION", breachType: BREACH_TYPE.ABILITY,
+    damageType: "BLACK", baseAttack: 7,
+    resistance: { RED: 1.0, WHITE: 1.0, BLACK: 0.6, PALE: 1.0 },
+    flavor: "届くはずのない差出人からの手紙が、時折投函されている。",
+  },
+  // TETH
+  {
+    id: "t_bottle", name: "反響する空き瓶", codename: "割れない瓶の音の噂", rank: "TETH",
+    preferredWork: "INSIGHT", dislikedWork: "ATTACHMENT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "WHITE", baseAttack: 14,
+    resistance: { RED: 1.0, WHITE: 0.5, BLACK: 1.0, PALE: 1.0 },
+    flavor: "割れているはずの瓶の奥から、規則的な反響音がする。",
+  },
+  {
+    id: "t_specimen_shelf", name: "揺れる標本棚", codename: "見返す標本の噂", rank: "TETH",
+    preferredWork: "REPRESSION", dislikedWork: "INSTINCT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "PALE", baseAttack: 12,
+    resistance: { RED: 1.0, WHITE: 1.0, BLACK: 1.0, PALE: 0.6 },
+    flavor: "棚のガラス越しに、標本と目が合う気がしてならない。",
+  },
+  {
+    id: "t_fireplace", name: "凍りつく暖炉", codename: "火の気のない暖炉の噂", rank: "TETH",
+    preferredWork: "INSTINCT", dislikedWork: "INSIGHT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "RED", baseAttack: 15,
+    resistance: { RED: 0.5, WHITE: 1.0, BLACK: 1.0, PALE: 1.1 },
+    flavor: "火の気がないのに、暖炉の中だけが凍りついている。",
+  },
+  {
+    id: "t_mirror", name: "泣き虫の姿見", codename: "一拍遅れる鏡の噂", rank: "TETH",
+    preferredWork: "ATTACHMENT", dislikedWork: "REPRESSION", breachType: BREACH_TYPE.ABILITY,
+    damageType: "WHITE", baseAttack: 13,
+    resistance: { RED: 1.1, WHITE: 0.5, BLACK: 1.0, PALE: 1.0 },
+    flavor: "鏡に映る自分が、一拍遅れてこちらを見る。",
+  },
+  // HE
+  {
+    id: "h_bookshelf", name: "軋む書架", codename: "抗議する書架の噂", rank: "HE",
+    preferredWork: "INSIGHT", dislikedWork: "ATTACHMENT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "BLACK", baseAttack: 22,
+    resistance: { RED: 0.9, WHITE: 0.9, BLACK: 0.5, PALE: 1.0 },
+    flavor: "本を一冊抜くたびに、書架全体が軋んで抗議する。",
+  },
+  {
+    id: "h_bathtub", name: "満ちる浴槽", codename: "止まらない水位の噂", rank: "HE",
+    preferredWork: "INSTINCT", dislikedWork: "REPRESSION", breachType: BREACH_TYPE.ABILITY,
+    damageType: "PALE", baseAttack: 20,
+    resistance: { RED: 1.0, WHITE: 1.0, BLACK: 1.0, PALE: 0.5 },
+    flavor: "止めても止めても、浴槽の水位が静かに上がり続ける。",
+  },
+  {
+    id: "h_compass_needle", name: "回り続ける針", codename: "時刻を指さない針の噂", rank: "HE",
+    preferredWork: "REPRESSION", dislikedWork: "INSIGHT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "WHITE", baseAttack: 23,
+    resistance: { RED: 1.0, WHITE: 0.5, BLACK: 0.9, PALE: 1.0 },
+    flavor: "針は時刻ではなく、別の何かを指し続けている。",
+  },
+  {
+    id: "h_lighthouse", name: "眠らない標識灯", codename: "誰もいない海への灯りの噂", rank: "HE",
+    preferredWork: "ATTACHMENT", dislikedWork: "INSTINCT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "RED", baseAttack: 24,
+    resistance: { RED: 0.6, WHITE: 1.0, BLACK: 1.0, PALE: 1.0 },
+    flavor: "誰も航行していない海に向けて、灯りだけが点滅を続ける。",
+  },
+  // WAW
+  {
+    id: "w_attic", name: "軋む天井裏", codename: "延々と響く足音の噂", rank: "WAW",
+    preferredWork: "INSIGHT", dislikedWork: "REPRESSION", breachType: BREACH_TYPE.ABILITY,
+    damageType: "PALE", baseAttack: 29,
+    resistance: { RED: 0.8, WHITE: 0.8, BLACK: 0.8, PALE: 0.4 },
+    flavor: "天井裏から、規則正しい足音が延々と響いてくる。",
+  },
+  {
+    id: "w_greenhouse", name: "満月の温室", codename: "人の輪郭を象る植物の噂", rank: "WAW",
+    preferredWork: "ATTACHMENT", dislikedWork: "INSTINCT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "WHITE", baseAttack: 31,
+    resistance: { RED: 1.0, WHITE: 0.5, BLACK: 0.9, PALE: 1.0 },
+    flavor: "満月の夜だけ、温室の植物が人の輪郭を象る。",
+  },
+  {
+    id: "w_staircase", name: "凍える大階段", codename: "上るほど凍てつく階段の噂", rank: "WAW",
+    preferredWork: "INSTINCT", dislikedWork: "ATTACHMENT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "BLACK", baseAttack: 33,
+    resistance: { RED: 0.6, WHITE: 0.9, BLACK: 0.5, PALE: 1.0 },
+    flavor: "上るほどに、大階段の先が凍てついていく。",
+  },
+  {
+    id: "w_theater", name: "軋轢の劇場", codename: "客席から上がる悲鳴の噂", rank: "WAW",
+    preferredWork: "REPRESSION", dislikedWork: "INSIGHT", breachType: BREACH_TYPE.ABILITY,
+    damageType: "PALE", baseAttack: 30,
+    resistance: { RED: 0.9, WHITE: 0.9, BLACK: 0.9, PALE: 0.4 },
+    flavor: "幕が上がるたび、客席のどこかで悲鳴が上がる。",
   },
 ];
 
