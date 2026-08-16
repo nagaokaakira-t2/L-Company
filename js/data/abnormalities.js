@@ -495,5 +495,8 @@ export function instantiateAbnormality(id) {
     infoPoints: 0,
     contained: true,
     breached: false,
+    workCooldownUntil: 0, // 作業CT（幻想体側）
+    egoExtractedWeaponCount: 0,
+    egoExtractedArmorCount: 0,
   };
 }
