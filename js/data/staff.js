@@ -48,6 +48,7 @@ export function createStaff() {
     equippedArmor: null, // { rank, resistance:{RED,WHITE,BLACK,PALE}, name }
     assignment: null, // 現在の作業先 abnormalityId
     exp: 0,
+    workCooldownUntil: 0, // 作業クールタイム（Date.now()のタイムスタンプ）
   };
 }
 
