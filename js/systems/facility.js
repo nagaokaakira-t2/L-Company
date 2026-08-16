@@ -11,14 +11,15 @@ import { unlockCost, egoExtractCost, egoMaxCount } from "../data/ego.js";
 export const BASE_QUOTA = 30;
 export const QUOTA_GROWTH_PER_DAY = 45; // 日を跨ぐごとの増加量（後半は選定される幻想体の数でさらに加速する）
 export const FINAL_DAY = 50;
-export const WORK_COOLDOWN_MS = 4000; // 1回作業した職員が次に作業できるまでのクールタイム
+export const WORK_COOLDOWN_MS = 4000; // 1回作業した職員が次に作業できるまでのクールタイム(CT)
+export const AB_WORK_COOLDOWN_MS = 4000; // 1回作業を受けた幻想体が次に作業を受けられるまでのCT
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
 }
 
 export function createInitialState() {
-  return {
+  const state = {
     day: 1,
     energy: 0,
     quota: BASE_QUOTA,
@@ -33,7 +34,38 @@ export function createInitialState() {
     pendingBreach: null, // 戦闘に移行する幻想体
     checkpoints: [], // { day, snapshot } チェックポイント（巻き戻し用）
     egoInventory: [], // 抽出済みE.G.O装備（武器/防具）の実体リスト
+    dayStartSnapshot: null, // 時間遡行技術用: その日の開始時点の状態
   };
+  return state;
+}
+
+/**
+ * その日の開始時点の状態を丸ごとスナップショットする（時間遡行技術用）。
+ * staffListを初期投入した直後や、endDay完了直後に呼び出す。
+ */
+export function snapshotDayStart(state) {
+  state.dayStartSnapshot = {
+    energy: state.energy,
+    staffList: JSON.parse(JSON.stringify(state.staffList)),
+    abnormalities: JSON.parse(JSON.stringify(state.abnormalities)),
+  };
+}
+
+/**
+ * 時間遡行技術: その日の開始時点まで状態を巻き戻す。
+ * 職員の負傷・死亡・精神崩壊、幻想体の機嫌/クリフォト/暴走状態などが全て復元される
+ * （既知の観測情報や抽出済みE.G.O自体は失われない — スナップショット自体に含まれているため）。
+ * その日中に新しく雇用した職員は失われる。
+ */
+export function rewindDay(state) {
+  if (!state.dayStartSnapshot) return false;
+  state.energy = state.dayStartSnapshot.energy;
+  state.staffList = JSON.parse(JSON.stringify(state.dayStartSnapshot.staffList));
+  state.abnormalities = JSON.parse(JSON.stringify(state.dayStartSnapshot.abnormalities));
+  state.pendingBreach = null;
+  state.gameOver = false;
+  log(state, `時間遡行技術を発動。${state.day}日目の開始時点まで状態を巻き戻した。`);
+  return true;
 }
 
 export function log(state, message) {
@@ -47,7 +79,7 @@ export function log(state, message) {
  * クリフォトカウンターの増減量は幻想体ごとの設定（getPeBoxConfig）に従う。
  * @returns {{ quality:string, success:boolean, energyGained:number, moodDelta:number }}
  */
-export function performWork(state, staffId, abnormalityId, workType) {
+export function performWork(state, staffId, abnormalityId, workType, now = Date.now()) {
   const staff = state.staffList.find((s) => s.id === staffId);
   const ab = state.abnormalities.find((a) => a.id === abnormalityId);
   if (!staff || !ab || !staff.alive || !staff.sane) {
@@ -56,8 +88,11 @@ export function performWork(state, staffId, abnormalityId, workType) {
   if (ab.breached) {
     return { quality: "NONE", success: false, energyGained: 0, moodDelta: 0 };
   }
-  if (staff.workCooldownUntil && Date.now() < staff.workCooldownUntil) {
-    return { quality: "NONE", success: false, energyGained: 0, moodDelta: 0, onCooldown: true };
+  if (staff.workCooldownUntil && now < staff.workCooldownUntil) {
+    return { quality: "NONE", success: false, energyGained: 0, moodDelta: 0, onCooldown: true, ctTarget: "staff" };
+  }
+  if (ab.workCooldownUntil && now < ab.workCooldownUntil) {
+    return { quality: "NONE", success: false, energyGained: 0, moodDelta: 0, onCooldown: true, ctTarget: "abnormality" };
   }
 
   const rankValue = RANK_VALUE[ab.rank];
@@ -74,7 +109,8 @@ export function performWork(state, staffId, abnormalityId, workType) {
 
   const success = quality !== "BAD"; // GOOD/NORMALは成功扱い、BADのみ失敗扱い（成長・負傷判定用）
   const leveledUp = grantWorkExperience(staff, workType, success, rankValue);
-  staff.workCooldownUntil = Date.now() + WORK_COOLDOWN_MS;
+  staff.workCooldownUntil = now + WORK_COOLDOWN_MS;
+  ab.workCooldownUntil = now + AB_WORK_COOLDOWN_MS;
 
   let energyGained = 0;
   let moodDelta = 0;
@@ -180,24 +216,30 @@ export function unlockAbnormalityInfo(state, abnormalityId, kind) {
 
 /**
  * E.G.O抽出: 情報ポイントを消費してインベントリに武器 or 防具を1点追加する
+ * 武器と防具は別枠でカウントされ、それぞれランクに応じた上限まで独立に抽出できる
+ * （例: WAW級なら武器4個・防具4個を、合計8個まで抽出可能）
  */
 export function extractEgo(state, abnormalityId, egoType, itemFactory) {
   const ab = state.abnormalities.find((a) => a.id === abnormalityId);
   if (!ab) return { ok: false, reason: "not_found" };
   if (!ab.unlockedInfo.manual) return { ok: false, reason: "manual_required" };
 
+  const countKey = egoType === "weapon" ? "egoExtractedWeaponCount" : "egoExtractedArmorCount";
   const max = egoMaxCount(ab.rank);
-  ab.egoExtractedCount = ab.egoExtractedCount || 0;
-  if (ab.egoExtractedCount >= max) return { ok: false, reason: "max_reached" };
+  ab[countKey] = ab[countKey] || 0;
+  if (ab[countKey] >= max) return { ok: false, reason: "max_reached" };
 
   const cost = egoExtractCost(ab.rank);
   if (ab.infoPoints < cost) return { ok: false, reason: "insufficient_points" };
 
   ab.infoPoints -= cost;
-  ab.egoExtractedCount += 1;
+  ab[countKey] += 1;
   const item = itemFactory(ab);
   state.egoInventory.push(item);
-  log(state, `${ab.name} から ${item.name} を抽出した（情報P -${cost} / 残り抽出可能: ${max - ab.egoExtractedCount}）。`);
+  log(
+    state,
+    `${ab.name} から ${item.name} を抽出した（情報P -${cost} / この幻想体の${egoType === "weapon" ? "武器" : "防具"}残り抽出可能: ${max - ab[countKey]}）。`
+  );
   return { ok: true, cost, item };
 }
 
@@ -286,6 +328,7 @@ export function endDay(state, chosenAbnormalityId) {
   }
 
   log(state, `${state.day}日目を迎えた。ノルマ: ${state.quota}`);
+  snapshotDayStart(state);
 }
 
 /**
