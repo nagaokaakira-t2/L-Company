@@ -4,13 +4,18 @@
 // ============================================================
 
 import { grantWorkExperience, restStaff, getArmorRank, getArmorResistance } from "../data/staff.js";
-import { ABNORMALITY_POOL, instantiateAbnormality } from "../data/abnormalities.js";
+import { ABNORMALITY_POOL, instantiateAbnormality, getPeBoxConfig } from "../data/abnormalities.js";
 import { calcAbnormalityToStaffDamage, RANK_VALUE } from "./damage.js";
 import { unlockCost, egoExtractCost, egoMaxCount } from "../data/ego.js";
 
 export const BASE_QUOTA = 30;
 export const QUOTA_GROWTH_PER_DAY = 45; // 日を跨ぐごとの増加量（後半は選定される幻想体の数でさらに加速する）
 export const FINAL_DAY = 50;
+export const WORK_COOLDOWN_MS = 4000; // 1回作業した職員が次に作業できるまでのクールタイム
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
 
 export function createInitialState() {
   return {
@@ -37,58 +42,82 @@ export function log(state, message) {
 }
 
 /**
- * 作業成功率: 好みの作業なら高確率、嫌いな作業なら低確率、
- * 職員のレベル・対応ステータスが高いほど補正される
- */
-function calcSuccessChance(staff, abnormality, workType) {
-  let base = 0.55;
-  if (workType === abnormality.preferredWork) base += 0.25;
-  if (workType === abnormality.dislikedWork) base -= 0.3;
-
-  const statBoost = Math.min(0.2, (staff.level - 1) * 0.02);
-  return Math.max(0.05, Math.min(0.95, base + statBoost));
-}
-
-/**
  * 1件の作業を実行する（職員1名 -> 幻想体1体）
- * @returns {{ success:boolean, energyGained:number, moodDelta:number }}
+ * 作業結果は PE Box 判定により GOOD / NORMAL / BAD の3段階で評価され、
+ * クリフォトカウンターの増減量は幻想体ごとの設定（getPeBoxConfig）に従う。
+ * @returns {{ quality:string, success:boolean, energyGained:number, moodDelta:number }}
  */
 export function performWork(state, staffId, abnormalityId, workType) {
   const staff = state.staffList.find((s) => s.id === staffId);
   const ab = state.abnormalities.find((a) => a.id === abnormalityId);
   if (!staff || !ab || !staff.alive || !staff.sane) {
-    return { success: false, energyGained: 0, moodDelta: 0 };
+    return { quality: "NONE", success: false, energyGained: 0, moodDelta: 0 };
   }
   if (ab.breached) {
-    return { success: false, energyGained: 0, moodDelta: 0 };
+    return { quality: "NONE", success: false, energyGained: 0, moodDelta: 0 };
+  }
+  if (staff.workCooldownUntil && Date.now() < staff.workCooldownUntil) {
+    return { quality: "NONE", success: false, energyGained: 0, moodDelta: 0, onCooldown: true };
   }
 
   const rankValue = RANK_VALUE[ab.rank];
-  const chance = calcSuccessChance(staff, ab, workType);
-  const success = Math.random() < chance;
+
+  // ── PE Box判定: 好み作業なら判定ロールが上振れ、苦手作業なら下振れする ──
+  const roll = Math.random();
+  let adjustedRoll = roll;
+  if (workType === ab.preferredWork) adjustedRoll += 0.15;
+  if (workType === ab.dislikedWork) adjustedRoll -= 0.15;
+  const peCfg = getPeBoxConfig(ab);
+  let quality = "NORMAL";
+  if (adjustedRoll >= peCfg.goodThreshold) quality = "GOOD";
+  else if (adjustedRoll < peCfg.badThreshold) quality = "BAD";
+
+  const success = quality !== "BAD"; // GOOD/NORMALは成功扱い、BADのみ失敗扱い（成長・負傷判定用）
   const leveledUp = grantWorkExperience(staff, workType, success, rankValue);
+  staff.workCooldownUntil = Date.now() + WORK_COOLDOWN_MS;
 
   let energyGained = 0;
   let moodDelta = 0;
+  let qliphothDelta = 0;
+  let infoGain = 0;
+  let specialEffect = "";
 
-  if (success) {
-    energyGained = (3 + Math.floor(Math.random() * 3)) + rankValue; // 高ランクほどエネルギー効率も良い
-    moodDelta = workType === ab.preferredWork ? 8 : 3;
-    ab.infoPoints += rankValue; // 情報ポイントもランクに比例（高ランクほど解禁コストが高い分、貯まりも早い）
-    ab.qliphoth = Math.min(ab.qliphothMax, ab.qliphoth + 1);
-  } else {
+  if (quality === "GOOD") {
+    energyGained = 4 + Math.floor(Math.random() * 3) + rankValue;
+    moodDelta = workType === ab.preferredWork ? 12 : 6;
+    qliphothDelta = peCfg.goodQliphothBonus;
+    infoGain = rankValue + 1;
+    if (Math.random() < 0.25) {
+      infoGain += 1;
+      specialEffect = "／特殊効果: 追加の観測情報を得た";
+    }
+  } else if (quality === "BAD") {
     energyGained = 1;
-    moodDelta = workType === ab.dislikedWork ? -15 : -5;
+    moodDelta = workType === ab.dislikedWork ? -18 : -8;
+    qliphothDelta = -peCfg.badQliphothPenalty;
+    infoGain = 0;
+    if (Math.random() < 0.25) {
+      moodDelta -= 6;
+      specialEffect = "／特殊効果: 反発が強まり機嫌がさらに悪化した";
+    }
+  } else {
+    energyGained = 3 + Math.floor(Math.random() * 3) + Math.floor(rankValue / 2);
+    moodDelta = workType === ab.preferredWork ? 6 : workType === ab.dislikedWork ? -10 : 2;
+    qliphothDelta = 1;
+    infoGain = rankValue;
   }
 
-  ab.mood = Math.max(0, Math.min(ab.maxMood, ab.mood + moodDelta));
+  ab.mood = clamp(ab.mood + moodDelta, 0, ab.maxMood);
+  ab.qliphoth = clamp(ab.qliphoth + qliphothDelta, 0, ab.qliphothMax);
+  ab.infoPoints += infoGain;
   state.energy += energyGained;
 
-  // ── 作業ダメージ: ランクが高いほど、失敗時ほど負傷リスクが上がる ──
-  const injuryChance = success ? 0.12 + rankValue * 0.02 : 0.4 + rankValue * 0.05;
+  // ── 作業ダメージ: 結果が悪いほど、ランクが高いほど負傷リスクが上がる ──
+  const injuryChance =
+    quality === "BAD" ? 0.4 + rankValue * 0.05 : quality === "GOOD" ? 0.05 + rankValue * 0.01 : 0.15 + rankValue * 0.02;
   let staffDamageText = "";
   if (Math.random() < injuryChance) {
-    const baseDamage = ab.baseAttack * (success ? 0.2 : 0.55);
+    const baseDamage = ab.baseAttack * (quality === "BAD" ? 0.55 : quality === "GOOD" ? 0.15 : 0.3);
     const dmg = calcAbnormalityToStaffDamage({
       baseDamage,
       damageType: ab.damageType,
@@ -115,17 +144,20 @@ export function performWork(state, staffId, abnormalityId, workType) {
     }
   }
 
+  const qualityLabel = { GOOD: "良好", NORMAL: "普通", BAD: "不良" }[quality];
   log(
     state,
-    `${staff.name} が ${ab.name} に対して作業(${workType})${success ? "成功" : "失敗"}。` +
-      `機嫌${moodDelta >= 0 ? "+" : ""}${moodDelta} / エネルギー+${energyGained}${leveledUp ? ` / ${staff.name} レベルアップ!` : ""}${staffDamageText}`
+    `${staff.name} が ${ab.name} に対して作業(${workType})。結果: ${qualityLabel}。` +
+      `機嫌${moodDelta >= 0 ? "+" : ""}${moodDelta} / クリフォト${qliphothDelta >= 0 ? "+" : ""}${qliphothDelta} / エネルギー+${energyGained}${leveledUp ? ` / ${staff.name} レベルアップ!` : ""}${staffDamageText}${specialEffect}`
   );
 
   if (ab.mood <= 0 && !ab.breached) {
     triggerBreach(state, ab);
+  } else if (ab.qliphoth <= 0 && !ab.breached) {
+    triggerBreach(state, ab);
   }
 
-  return { success, energyGained, moodDelta };
+  return { quality, success, energyGained, moodDelta };
 }
 
 /**
