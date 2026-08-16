@@ -353,3 +353,29 @@ select {
   font-size: 0.78rem;
   font-weight: bold;
 }
+
+.dayend-staff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 14px;
+}
+.dayend-staff-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.rename-input {
+  flex: 1;
+  background: #10121a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 0.85rem;
+  font-family: inherit;
+}
