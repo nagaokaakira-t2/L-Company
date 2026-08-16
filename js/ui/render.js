@@ -154,10 +154,13 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
 
         const staffSelect = el("select", "staff-select");
         staffSelect.dataset.abId = ab.id;
+        const now = Date.now();
         for (const s of state.staffList) {
           if (!s.alive || !s.sane) continue;
-          const opt = el("option", null, `${s.name} (Lv${s.level})`);
+          const onCooldown = s.workCooldownUntil && now < s.workCooldownUntil;
+          const opt = el("option", null, `${s.name} (Lv${s.level})${onCooldown ? "［クールタイム中］" : ""}`);
           opt.value = s.id;
+          if (onCooldown) opt.disabled = true;
           staffSelect.appendChild(opt);
         }
         if (sel.staff && staffSelect.querySelector(`option[value="${sel.staff}"]`)) {
@@ -169,8 +172,9 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
         for (const w of WORK_TYPES) {
           const opt = el("option", null, WORK_LABEL[w]);
           opt.value = w;
-          if (w === ab.preferredWork) opt.textContent += " ◎好み";
-          if (w === ab.dislikedWork) opt.textContent += " ×嫌い";
+          // 好む作業は名前解禁で、苦手な作業はマニュアル解禁で判明する
+          if (ab.unlockedInfo.name && w === ab.preferredWork) opt.textContent += " ◎";
+          if (ab.unlockedInfo.manual && w === ab.dislikedWork) opt.textContent += " ×";
           workSelect.appendChild(opt);
         }
         if (sel.work) workSelect.value = sel.work;
@@ -362,6 +366,19 @@ export function renderDetailModal(state, abnormalityId, { onUnlock, onExtract, o
   }
   box.appendChild(el("h3", null, `情報ポイント: ${ab.infoPoints}`));
 
+  // ── 作業傾向: 好む作業は名前解禁で判明。苦手な作業はマニュアル解禁まで不明のまま ──
+  box.appendChild(el("h3", null, "作業傾向"));
+  if (observed) {
+    box.appendChild(el("p", "info-row", `好む作業: ${WORK_LABEL[ab.preferredWork]}`));
+    if (ab.unlockedInfo.manual) {
+      box.appendChild(el("p", "info-row", `苦手な作業: ${WORK_LABEL[ab.dislikedWork]}`));
+    } else {
+      box.appendChild(el("p", "info-row", "苦手な作業: ???（管理マニュアル解禁で判明）"));
+    }
+  } else {
+    box.appendChild(el("p", "info-row", "作業傾向は未観測（名前の解禁が必要）"));
+  }
+
   // ── 情報開示 ──
   box.appendChild(el("h3", null, "情報開示"));
   const nameCost = unlockCost(ab.rank, "name");
@@ -443,7 +460,10 @@ export function renderCombatModal(session, state, { onAssignAndStart, onClose })
   const box = el("div", "modal-box");
   const titleRow = el("div", "card-head");
   titleRow.appendChild(rankIcon(session.enemyRank, "icon-lg"));
-  titleRow.appendChild(el("h2", null, session.started ? `鎮圧戦闘: ${session.enemyName}` : `鎮圧部隊を編成: ${session.enemyName}`));
+  const waveTag = session.waveTotal ? `（波 ${session.waveNum}/${session.waveTotal}）` : "";
+  titleRow.appendChild(
+    el("h2", null, (session.started ? `鎮圧戦闘: ${session.enemyName}` : `鎮圧部隊を編成: ${session.enemyName}`) + waveTag)
+  );
   box.appendChild(titleRow);
 
   if (!session.started) {
@@ -528,14 +548,71 @@ export function renderCandidateModal(candidates, { onChoose }) {
   modal.appendChild(box);
 }
 
+export function renderDayEndScreen(state, dayEndState, { onHire, onRename, onContinue }) {
+  const modal = document.getElementById("dayend-modal");
+  if (!dayEndState) {
+    modal.classList.add("hidden");
+    modal.innerHTML = "";
+    return;
+  }
+  modal.classList.remove("hidden");
+  modal.innerHTML = "";
+
+  const box = el("div", "modal-box");
+  if (dayEndState.mode === "recovery") {
+    box.appendChild(el("h2", null, "☠ 施設は制御を失った"));
+    box.appendChild(
+      el("p", "flavor", `稼働可能な職員がいなくなった。新たな職員を雇用し、${state.day}日目をやり直す。`)
+    );
+  } else {
+    box.appendChild(el("h2", null, `${state.day}日目 終了処理`));
+    box.appendChild(el("p", "flavor", "職員の雇用・改名を行い、準備ができたら次の日へ進んでください。"));
+  }
+
+  const hireBtn = el("button", "btn", "職員を雇用する（上限12名）");
+  hireBtn.disabled = state.staffList.length >= 12;
+  hireBtn.onclick = onHire;
+  box.appendChild(hireBtn);
+
+  box.appendChild(el("h3", null, "職員一覧（改名可）"));
+  const staffListEl = el("div", "dayend-staff-list");
+  for (const s of state.staffList) {
+    const row = el("div", "dayend-staff-row");
+    row.appendChild(img("assets/staff_avatar.svg", "icon-sm"));
+    if (s.alive) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = s.name;
+      input.maxLength = 12;
+      input.className = "rename-input";
+      input.disabled = !s.alive;
+      input.onchange = () => onRename(s.id, input.value);
+      row.appendChild(input);
+    } else {
+      row.appendChild(el("span", "ab-name", s.name));
+    }
+    row.appendChild(el("span", "lv-badge", `Lv${s.level}`));
+    if (!s.alive) row.appendChild(el("span", "tag-done warn-tag", "殉職"));
+    else if (!s.sane) row.appendChild(el("span", "tag-done warn-tag", "精神崩壊"));
+    staffListEl.appendChild(row);
+  }
+  box.appendChild(staffListEl);
+
+  const canContinue = state.staffList.some((s) => s.alive && s.sane);
+  const contBtn = el("button", "btn", dayEndState.mode === "recovery" ? "この日をやり直す" : "次の日へ進む");
+  contBtn.disabled = !canContinue;
+  contBtn.onclick = onContinue;
+  box.appendChild(contBtn);
+  if (!canContinue) box.appendChild(el("p", "info-row", "※ 稼働可能な職員が1人もいないため進められない"));
+
+  modal.appendChild(box);
+}
+
 export function renderGameOverBanner(state) {
   const banner = document.getElementById("gameover-banner");
   if (state.cleared) {
     banner.classList.remove("hidden");
     banner.textContent = `🎉 50日間の運営を完遂した。ロボトミー社は今日も静かに稼働を続ける…`;
-  } else if (state.gameOver) {
-    banner.classList.remove("hidden");
-    banner.textContent = `☠ 施設は制御を失った。（${state.day}日目で全滅）`;
   } else {
     banner.classList.add("hidden");
   }
