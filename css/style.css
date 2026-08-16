@@ -45,7 +45,48 @@ body {
   gap: 12px;
   align-items: center;
   font-size: 0.9rem;
+  flex-wrap: wrap;
 }
+.speed-controls {
+  display: flex;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.speed-controls .btn {
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: 0.78rem;
+}
+.speed-controls .btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.ct-tag {
+  color: var(--accent2);
+  font-weight: bold;
+  font-size: 0.72rem;
+}
+.codex-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.codex-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+.codex-row .flavor { margin: 0; flex: 1; }
 
 .btn {
   background: var(--accent);
@@ -131,12 +172,21 @@ body {
 .ab-tier-grid {
   display: grid;
   grid-template-rows: repeat(5, auto);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-auto-flow: column;
-  grid-auto-columns: minmax(220px, 1fr);
-  gap: 10px;
-  overflow-x: auto;
+  gap: calc(10px * var(--tier-scale, 1));
   padding-bottom: 4px;
 }
+/* 1段あたりの収容数が増えるほど、カードのフォント・パディング・アイコンを
+   段階的に縮小し、横スクロールなしで全体を視認できるようにする */
+.ab-tier-grid .ab-card {
+  padding: calc(10px * var(--tier-scale, 1));
+  font-size: calc(1em * var(--tier-scale, 1));
+}
+.ab-tier-grid .icon-lg { width: calc(44px * var(--tier-scale, 1)); height: calc(44px * var(--tier-scale, 1)); }
+.ab-tier-grid .icon-sm { width: calc(22px * var(--tier-scale, 1)); height: calc(22px * var(--tier-scale, 1)); }
+.ab-tier-grid .intro-line { font-size: calc(0.76rem * var(--tier-scale, 1)); }
+.ab-tier-grid .flavor { font-size: calc(0.78rem * var(--tier-scale, 1)); }
 
 /* ── 職員パネル: ボタン式アコーディオン ── */
 .staff-list {
