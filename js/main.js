@@ -1,6 +1,6 @@
 // ============================================================
 // main.js
-// エントリーポイント: 状態管理・リアルタイムティック・イベント配線
+// エントリーポイント: 状態管理・仮想クロック（一時停止/倍速対応）・イベント配線
 // ============================================================
 
 import {
@@ -12,6 +12,8 @@ import {
   endDay,
   unlockAbnormalityInfo,
   extractEgo,
+  rewindDay,
+  snapshotDayStart,
   log,
 } from "./systems/facility.js";
 import { createStaff } from "./data/staff.js";
@@ -32,30 +34,38 @@ import {
   renderCombatModal,
   renderCandidateModal,
   renderDayEndScreen,
+  renderCodexModal,
   renderGameOverBanner,
 } from "./ui/render.js";
 
-const QLIPHOTH_TICK_MS = 9000; // クリフォトが1つ減るリアルタイム間隔（余裕を持たせた値）
-const TRIAL_INTERVAL_MS = 75000; // 試練が発生するリアルタイム間隔
+const QLIPHOTH_TICK_MS = 9000; // クリフォトが1つ減る（仮想時間の）間隔
+const TRIAL_INTERVAL_MS = 75000; // 試練が発生する（仮想時間の）間隔
 const REGEN_TICK_MS = 4000; // 未作業時のHP/SP自然回復間隔
+const REAL_TICK_MS = 200; // マスタークロックの実時間刻み幅
 
 let state = createInitialState();
 let combatSession = null;
-let combatTimer = null;
 let candidateChoices = null;
 let detailAbnormalityId = null;
-let qliphothTimer = null;
-let trialTimer = null;
-let regenTimer = null;
+let codexOpen = false;
 let uiSelection = {}; // { [abnormalityId]: { staff, work } } — 再描画をまたいで作業実行の選択を保持する
 let expandedStaffIds = new Set(); // 職員パネルで展開中のID
-let dayEndState = null; // null | { mode: "normal" } | { mode: "recovery" }
+let dayEndState = null; // null | { mode: "normal" } | { mode: "recovery" } | { mode: "rewind" }
 let pendingCandidateId = null; // 1日終了時に選んだ次の管理対象（day-end画面を経てendDayに渡す）
 
 // 試練（複数波）の進行管理
 let trialQueue = null; // 残りウェーブのランク配列
 let trialWaveNum = 0;
 let trialWaveTotalNum = 0;
+
+// ── 仮想クロック（一時停止・倍速対応） ──
+let virtualNow = Date.now();
+let gameSpeed = 1; // 0=一時停止, 1, 2, 4
+let qliphothAcc = 0;
+let trialAcc = 0;
+let regenAcc = 0;
+let combatAcc = 0;
+let masterTimer = null;
 
 function isPaused() {
   return state.gameOver || state.cleared || !!dayEndState;
@@ -66,12 +76,9 @@ function checkGameOver() {
   if (state.staffList.length > 0 && !anyUsable && !state.gameOver) {
     state.gameOver = true;
     dayEndState = { mode: "recovery" };
-    if (combatTimer) {
-      clearInterval(combatTimer);
-      combatTimer = null;
-    }
     combatSession = null;
     trialQueue = null;
+    combatAcc = 0;
   }
 }
 
@@ -83,12 +90,14 @@ function renderAll() {
     onOpenDetail: handleOpenDetail,
     selection: uiSelection,
     onSelectionChange: handleSelectionChange,
+    now: virtualNow,
   });
   renderStaff(state, {
     onEquipWeapon: handleEquipWeapon,
     onEquipArmor: handleEquipArmor,
     expandedIds: expandedStaffIds,
     onToggleExpand: handleToggleStaffExpand,
+    now: virtualNow,
   });
   renderDetailModal(state, detailAbnormalityId, {
     onUnlock: handleUnlock,
@@ -101,17 +110,16 @@ function renderAll() {
     onHire: handleDayEndHire,
     onRename: handleDayEndRename,
     onContinue: handleDayEndContinue,
+    onCancel: handleDayEndCancel,
   });
+  renderCodexModal(state, codexOpen, { onClose: handleCloseCodex });
   renderGameOverBanner(state);
 }
 
 // ───────── イベントハンドラ ─────────
 
-// 作業実行の職員/作業選択は再描画をまたいで保持する（handleWork等でrenderAll()が
-// 呼ばれてもプルダウンの選択状態がリセットされないようにするため）
 function handleSelectionChange(abnormalityId, field, value) {
   uiSelection[abnormalityId] = { ...uiSelection[abnormalityId], [field]: value };
-  // DOM側は既にユーザー操作で更新済みのため、ここでは状態保持のみ行い re-render はしない
 }
 
 function handleToggleStaffExpand(staffId) {
@@ -122,7 +130,7 @@ function handleToggleStaffExpand(staffId) {
 
 function handleWork(staffId, abnormalityId, workType) {
   if (isPaused()) return;
-  const result = performWork(state, staffId, abnormalityId, workType);
+  const result = performWork(state, staffId, abnormalityId, workType, virtualNow);
   if (result.onCooldown) {
     renderAll();
     return;
@@ -173,6 +181,16 @@ function handleExtract(abnormalityId, egoType) {
   renderAll();
 }
 
+function handleOpenCodex() {
+  codexOpen = true;
+  renderAll();
+}
+
+function handleCloseCodex() {
+  codexOpen = false;
+  renderAll();
+}
+
 function openCombatSetup(abnormalityOrTrial) {
   combatSession = {
     started: false,
@@ -203,19 +221,11 @@ function startCombatWave(enemyRef, staffIds) {
   session.started = true;
   session.waveNum = enemyRef.isTrial ? trialWaveNum : undefined;
   session.waveTotal = enemyRef.isTrial ? trialWaveTotalNum : undefined;
+  session._enemyRef = enemyRef;
+  session._staffIds = staffIds;
   combatSession = session;
+  combatAcc = 0;
   renderAll();
-
-  combatTimer = setInterval(() => {
-    tickCombat(combatSession, enemyRef, state.staffList);
-    checkGameOver();
-    if (combatSession && combatSession.finished) {
-      clearInterval(combatTimer);
-      combatTimer = null;
-      handleCombatResolved(enemyRef, staffIds);
-    }
-    renderAll();
-  }, COMBAT_TICK_MS);
 }
 
 function handleCombatResolved(enemyRef, staffIds) {
@@ -300,14 +310,30 @@ function handleDayEndContinue() {
     renderAll();
     return;
   }
+  if (dayEndState?.mode === "rewind") {
+    rewindDay(state);
+    dayEndState = null;
+    combatSession = null;
+    trialQueue = null;
+    renderAll();
+    return;
+  }
   endDay(state, pendingCandidateId);
   pendingCandidateId = null;
   dayEndState = null;
   renderAll();
 }
 
-function handleHireStaffBlocked() {
-  log(state, "職員の雇用は「1日の終了」画面でのみ行える。");
+function handleDayEndCancel() {
+  if (dayEndState?.mode === "rewind") {
+    dayEndState = null;
+    renderAll();
+  }
+}
+
+function handleRewindClick() {
+  if (state.gameOver || state.cleared) return;
+  dayEndState = { mode: "rewind" };
   renderAll();
 }
 
@@ -326,52 +352,89 @@ function handleToggleFullscreen() {
   }
 }
 
-// ───────── リアルタイムティック ─────────
+function handleSetSpeed(speed) {
+  gameSpeed = speed;
+  for (const [id, s] of [
+    ["speed-pause-btn", 0],
+    ["speed-1x-btn", 1],
+    ["speed-2x-btn", 2],
+    ["speed-4x-btn", 4],
+  ]) {
+    document.getElementById(id).classList.toggle("active", s === speed);
+  }
+}
 
-function startTimers() {
-  qliphothTimer = setInterval(() => {
-    if (isPaused() || combatSession) return;
-    tickQliphoth(state);
-    const breachedNow = state.abnormalities.find((a) => a.breached && !combatSession);
-    if (breachedNow && !combatSession) {
-      openCombatSetup(breachedNow);
+// ───────── マスタークロック（一時停止・倍速に応じて仮想時間を進める） ─────────
+
+function doQliphothTick() {
+  tickQliphoth(state);
+  const breachedNow = state.abnormalities.find((a) => a.breached && !combatSession);
+  if (breachedNow && !combatSession) {
+    openCombatSetup(breachedNow);
+  }
+  checkGameOver();
+}
+
+function doTrialTick() {
+  const ranks = trialWaveRanks(state.day);
+  trialQueue = ranks.slice(1);
+  trialWaveTotalNum = ranks.length;
+  trialWaveNum = 1;
+  const enemy = createTrialWaveEnemy(ranks[0], state.day, 1);
+  log(state, `🔔 試練が発生（全${ranks.length}波）: 第1波 ${ranks[0]}`);
+  openCombatSetup(enemy);
+}
+
+function doRegenTick() {
+  for (const s of state.staffList) {
+    if (!s.alive || !s.sane) continue;
+    if (s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + s.maxHp * 0.04);
+    if (s.sp < s.maxSp) s.sp = Math.min(s.maxSp, s.sp + s.maxSp * 0.04);
+    if (s.panic && s.sp > s.maxSp * 0.5) s.panic = false;
+  }
+}
+
+function masterTick() {
+  if (gameSpeed === 0) return; // 一時停止中は仮想時間を進めない
+  const delta = REAL_TICK_MS * gameSpeed;
+  virtualNow += delta;
+
+  if (isPaused()) return;
+
+  if (!combatSession) {
+    qliphothAcc += delta;
+    trialAcc += delta;
+    regenAcc += delta;
+    if (qliphothAcc >= QLIPHOTH_TICK_MS) {
+      qliphothAcc -= QLIPHOTH_TICK_MS;
+      doQliphothTick();
     }
-    checkGameOver();
-    renderAll();
-  }, QLIPHOTH_TICK_MS);
-
-  trialTimer = setInterval(() => {
-    if (isPaused() || combatSession) return;
-    const ranks = trialWaveRanks(state.day);
-    trialQueue = ranks.slice(1);
-    trialWaveTotalNum = ranks.length;
-    trialWaveNum = 1;
-    const enemy = createTrialWaveEnemy(ranks[0], state.day, 1);
-    log(state, `🔔 試練が発生（全${ranks.length}波）: 第1波 ${ranks[0]}`);
-    openCombatSetup(enemy);
-    renderAll();
-  }, TRIAL_INTERVAL_MS);
-
-  regenTimer = setInterval(() => {
-    if (isPaused() || combatSession) return;
-    let changed = false;
-    for (const s of state.staffList) {
-      if (!s.alive || !s.sane) continue;
-      if (s.hp < s.maxHp) {
-        s.hp = Math.min(s.maxHp, s.hp + s.maxHp * 0.04);
-        changed = true;
-      }
-      if (s.sp < s.maxSp) {
-        s.sp = Math.min(s.maxSp, s.sp + s.maxSp * 0.04);
-        changed = true;
-      }
-      if (s.panic && s.sp > s.maxSp * 0.5) {
-        s.panic = false;
-        changed = true;
+    if (!combatSession && trialAcc >= TRIAL_INTERVAL_MS) {
+      trialAcc -= TRIAL_INTERVAL_MS;
+      doTrialTick();
+    }
+    if (regenAcc >= REGEN_TICK_MS) {
+      regenAcc -= REGEN_TICK_MS;
+      doRegenTick();
+    }
+    renderAll(); // CT表示などをリアルタイムに更新するため、変化の有無に関わらず描画する
+  } else if (combatSession.started && !combatSession.finished) {
+    combatAcc += delta;
+    while (combatAcc >= COMBAT_TICK_MS) {
+      combatAcc -= COMBAT_TICK_MS;
+      const enemyRef = combatSession._enemyRef;
+      const staffIds = combatSession._staffIds;
+      tickCombat(combatSession, enemyRef, state.staffList);
+      checkGameOver();
+      if (!combatSession) break;
+      if (combatSession.finished) {
+        handleCombatResolved(enemyRef, staffIds);
+        combatAcc = 0;
+        break;
       }
     }
-    if (changed) renderAll();
-  }, REGEN_TICK_MS);
+    renderAll();
+  }
 }
 
 // ───────── 初期化 ─────────
@@ -382,12 +445,19 @@ function init() {
     state.staffList.push(createStaff());
   }
   log(state, "ロボトミー社 施設運営を開始した。");
+  snapshotDayStart(state);
 
   document.getElementById("end-day-btn").onclick = handleEndDayClick;
   document.getElementById("log-toggle-btn").onclick = handleToggleLog;
   document.getElementById("fullscreen-btn").onclick = handleToggleFullscreen;
+  document.getElementById("rewind-btn").onclick = handleRewindClick;
+  document.getElementById("codex-btn").onclick = handleOpenCodex;
+  document.getElementById("speed-pause-btn").onclick = () => handleSetSpeed(0);
+  document.getElementById("speed-1x-btn").onclick = () => handleSetSpeed(1);
+  document.getElementById("speed-2x-btn").onclick = () => handleSetSpeed(2);
+  document.getElementById("speed-4x-btn").onclick = () => handleSetSpeed(4);
 
-  startTimers();
+  masterTimer = setInterval(masterTick, REAL_TICK_MS);
   renderAll();
 }
 
