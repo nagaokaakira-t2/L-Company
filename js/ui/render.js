@@ -96,9 +96,10 @@ export function renderLog(state) {
 const TIER_CAPACITY = 10; // 1段あたりの収容数（5体 × 2列）
 const TIER_LABELS = ["収容区画 上段", "収容区画 下段", "収容区画 下段2", "収容区画 下段3", "収容区画 下段4"];
 
-export function renderAbnormalities(state, { onWork, onOpenDetail, selection, onSelectionChange }) {
+export function renderAbnormalities(state, { onWork, onOpenDetail, selection, onSelectionChange, now }) {
   const container = document.getElementById("abnormality-list");
   container.innerHTML = "";
+  const clockNow = now ?? Date.now();
 
   // 5体ごとに縦列を折り返し、10体（2列）ごとに新しい「段」を作る
   for (let tierStart = 0; tierStart < state.abnormalities.length; tierStart += TIER_CAPACITY) {
@@ -108,6 +109,9 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
     const tierWrap = el("div", "ab-tier");
     tierWrap.appendChild(el("h3", "tier-label", TIER_LABELS[tierIndex] || `収容区画 下段${tierIndex}`));
     const grid = el("div", "ab-tier-grid");
+    // 収容数が多いほど段階的に縮小し、横スクロールなしで全体を視認できるようにする
+    const scale = Math.max(0.7, 1 - (tierAbs.length - 1) * 0.025);
+    grid.style.setProperty("--tier-scale", scale.toFixed(3));
 
     for (const ab of tierAbs) {
       const observed = ab.unlockedInfo.name;
@@ -151,14 +155,14 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
         card.appendChild(qRow);
 
         const sel = selection[ab.id] || {};
+        const abOnCooldown = ab.workCooldownUntil && clockNow < ab.workCooldownUntil;
 
         const staffSelect = el("select", "staff-select");
         staffSelect.dataset.abId = ab.id;
-        const now = Date.now();
         for (const s of state.staffList) {
           if (!s.alive || !s.sane) continue;
-          const onCooldown = s.workCooldownUntil && now < s.workCooldownUntil;
-          const opt = el("option", null, `${s.name} (Lv${s.level})${onCooldown ? "［クールタイム中］" : ""}`);
+          const onCooldown = s.workCooldownUntil && clockNow < s.workCooldownUntil;
+          const opt = el("option", null, `${s.name} (Lv${s.level})${onCooldown ? "［CT］" : ""}`);
           opt.value = s.id;
           if (onCooldown) opt.disabled = true;
           staffSelect.appendChild(opt);
@@ -167,6 +171,7 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
           staffSelect.value = sel.staff;
         }
         staffSelect.onchange = () => onSelectionChange(ab.id, "staff", staffSelect.value);
+        staffSelect.disabled = abOnCooldown;
 
         const workSelect = el("select", "work-select");
         for (const w of WORK_TYPES) {
@@ -179,8 +184,10 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
         }
         if (sel.work) workSelect.value = sel.work;
         workSelect.onchange = () => onSelectionChange(ab.id, "work", workSelect.value);
+        workSelect.disabled = abOnCooldown;
 
-        const workBtn = el("button", "btn small", "作業実行");
+        const workBtn = el("button", "btn small", abOnCooldown ? "CT中" : "作業実行");
+        workBtn.disabled = abOnCooldown;
         workBtn.onclick = () => {
           if (!staffSelect.value) return;
           onWork(staffSelect.value, ab.id, workSelect.value);
@@ -191,6 +198,7 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
         controls.appendChild(workSelect);
         controls.appendChild(workBtn);
         card.appendChild(controls);
+        if (abOnCooldown) card.appendChild(el("div", "ct-tag", "この幻想体はCT中（作業不可）"));
 
         const detailBtn = el("button", "btn small ghost", "詳細を見る（情報開示／EGO抽出）");
         detailBtn.onclick = () => onOpenDetail(ab.id);
@@ -208,10 +216,22 @@ export function renderAbnormalities(state, { onWork, onOpenDetail, selection, on
   }
 }
 
-export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, onToggleExpand }) {
+export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, onToggleExpand, now }) {
   const container = document.getElementById("staff-list");
   container.innerHTML = "";
   const inventory = state.egoInventory || [];
+  const clockNow = now ?? Date.now();
+
+  // 他の職員が現在装備中のアイテムIDを集計（1点の抽出装備は同時に1人しか使えない）
+  const equippedByOthers = (excludeStaffId, field) => {
+    const ids = new Set();
+    for (const other of state.staffList) {
+      if (other.id === excludeStaffId) continue;
+      const item = other[field];
+      if (item) ids.add(item.id);
+    }
+    return ids;
+  };
 
   for (const s of state.staffList) {
     const expanded = expandedIds.has(s.id);
@@ -231,7 +251,12 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, o
     if (!s.alive) label.appendChild(el("span", "tag-done warn-tag", "殉職"));
     else if (!s.sane) label.appendChild(el("span", "tag-done warn-tag", "精神崩壊"));
     else if (s.panic) label.appendChild(el("span", "tag-done warn-tag", "パニック"));
-    else label.appendChild(el("span", "mini-hp", `HP ${s.hp.toFixed(0)}/${s.maxHp}`));
+    else {
+      label.appendChild(el("span", "mini-hp", `HP ${s.hp.toFixed(0)}/${s.maxHp}`));
+      if (s.workCooldownUntil && clockNow < s.workCooldownUntil) {
+        label.appendChild(el("span", "ct-tag", "CT"));
+      }
+    }
     toggleBtn.appendChild(label);
     toggleBtn.appendChild(el("span", "chevron", expanded ? "▲" : "▼"));
     toggleBtn.onclick = () => onToggleExpand(s.id);
@@ -286,8 +311,12 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, o
     equipLine.appendChild(document.createTextNode(` ${s.equippedArmor?.name ?? "なし"}`));
     body.appendChild(equipLine);
 
-    const weapons = inventory.filter((i) => i.type === "weapon");
-    const armors = inventory.filter((i) => i.type === "armor");
+    const weapons = inventory.filter(
+      (i) => i.type === "weapon" && !equippedByOthers(s.id, "equippedWeapon").has(i.id)
+    );
+    const armors = inventory.filter(
+      (i) => i.type === "armor" && !equippedByOthers(s.id, "equippedArmor").has(i.id)
+    );
 
     if (weapons.length) {
       const wSelect = el("select", "equip-select");
@@ -296,6 +325,9 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, o
         const opt = el("option", null, `${w.name} [${w.rank}/${w.damageType}]`);
         opt.value = w.id;
         wSelect.appendChild(opt);
+      }
+      if (s.equippedWeapon && wSelect.querySelector(`option[value="${s.equippedWeapon.id}"]`)) {
+        wSelect.value = s.equippedWeapon.id;
       }
       wSelect.onchange = () => {
         if (wSelect.value) onEquipWeapon(s.id, wSelect.value);
@@ -310,13 +342,16 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, o
         opt.value = a.id;
         aSelect.appendChild(opt);
       }
+      if (s.equippedArmor && aSelect.querySelector(`option[value="${s.equippedArmor.id}"]`)) {
+        aSelect.value = s.equippedArmor.id;
+      }
       aSelect.onchange = () => {
         if (aSelect.value) onEquipArmor(s.id, aSelect.value);
       };
       body.appendChild(aSelect);
     }
     if (!weapons.length && !armors.length) {
-      body.appendChild(el("div", "info-row", "（抽出済みE.G.O装備はまだない）"));
+      body.appendChild(el("div", "info-row", "（装備可能なE.G.O装備がない。抽出済みで他の職員が使用中の可能性あり）"));
     }
 
     card.appendChild(body);
@@ -409,34 +444,44 @@ export function renderDetailModal(state, abnormalityId, { onUnlock, onExtract, o
   }
   box.appendChild(manualRow);
 
-  // ── EGO抽出 ──
+  // ── EGO抽出（武器・防具は別枠でそれぞれ上限までカウント）──
   box.appendChild(el("h3", null, "E.G.O抽出"));
   const max = egoMaxCount(ab.rank);
-  const extracted = ab.egoExtractedCount || 0;
-  box.appendChild(el("p", "info-row", `抽出済み: ${extracted} / ${max}（このランクの上限）`));
+  const weaponExtracted = ab.egoExtractedWeaponCount || 0;
+  const armorExtracted = ab.egoExtractedArmorCount || 0;
+  box.appendChild(el("p", "info-row", `武器 抽出済み: ${weaponExtracted} / ${max}　防具 抽出済み: ${armorExtracted} / ${max}`));
 
   if (!ab.unlockedInfo.manual) {
     box.appendChild(el("p", "info-row", "※ 管理マニュアルの解禁が必要"));
-  } else if (extracted >= max) {
-    box.appendChild(el("p", "info-row", "※ このアブノーマリティからの抽出上限に達した"));
   } else {
     const cost = egoExtractCost(ab.rank);
+
     const wRow = el("div", "unlock-row");
     wRow.appendChild(img("assets/ego_weapon.svg", "icon-xs"));
-    wRow.appendChild(el("span", null, ` 武器として抽出（コスト ${cost}）`));
-    const wBtn = el("button", "btn small", "抽出する");
-    wBtn.disabled = ab.infoPoints < cost;
-    wBtn.onclick = () => onExtract(ab.id, "weapon");
-    wRow.appendChild(wBtn);
+    if (weaponExtracted >= max) {
+      wRow.appendChild(el("span", null, ` 武器として抽出（上限に到達）`));
+      wRow.appendChild(el("span", "tag-done", "上限"));
+    } else {
+      wRow.appendChild(el("span", null, ` 武器として抽出（コスト ${cost}）`));
+      const wBtn = el("button", "btn small", "抽出する");
+      wBtn.disabled = ab.infoPoints < cost;
+      wBtn.onclick = () => onExtract(ab.id, "weapon");
+      wRow.appendChild(wBtn);
+    }
     box.appendChild(wRow);
 
     const aRow = el("div", "unlock-row");
     aRow.appendChild(img("assets/ego_armor.svg", "icon-xs"));
-    aRow.appendChild(el("span", null, ` 防具として抽出（コスト ${cost}）`));
-    const aBtn = el("button", "btn small", "抽出する");
-    aBtn.disabled = ab.infoPoints < cost;
-    aBtn.onclick = () => onExtract(ab.id, "armor");
-    aRow.appendChild(aBtn);
+    if (armorExtracted >= max) {
+      aRow.appendChild(el("span", null, ` 防具として抽出（上限に到達）`));
+      aRow.appendChild(el("span", "tag-done", "上限"));
+    } else {
+      aRow.appendChild(el("span", null, ` 防具として抽出（コスト ${cost}）`));
+      const aBtn = el("button", "btn small", "抽出する");
+      aBtn.disabled = ab.infoPoints < cost;
+      aBtn.onclick = () => onExtract(ab.id, "armor");
+      aRow.appendChild(aBtn);
+    }
     box.appendChild(aRow);
   }
 
@@ -548,7 +593,7 @@ export function renderCandidateModal(candidates, { onChoose }) {
   modal.appendChild(box);
 }
 
-export function renderDayEndScreen(state, dayEndState, { onHire, onRename, onContinue }) {
+export function renderDayEndScreen(state, dayEndState, { onHire, onRename, onContinue, onCancel }) {
   const modal = document.getElementById("dayend-modal");
   if (!dayEndState) {
     modal.classList.add("hidden");
@@ -564,6 +609,23 @@ export function renderDayEndScreen(state, dayEndState, { onHire, onRename, onCon
     box.appendChild(
       el("p", "flavor", `稼働可能な職員がいなくなった。新たな職員を雇用し、${state.day}日目をやり直す。`)
     );
+  } else if (dayEndState.mode === "rewind") {
+    box.appendChild(el("h2", null, "⏪ 時間遡行技術"));
+    box.appendChild(
+      el(
+        "p",
+        "flavor",
+        `${state.day}日目の開始時点まで状態を巻き戻します。今日中に行った作業の成果・職員の被害（死亡や精神崩壊を含む）は全て元に戻ります。既に解禁した観測情報・抽出済みのE.G.O・獲得済みのレベルは失われません。今日新しく雇用した職員は消滅します。`
+      )
+    );
+    const confirmBtn = el("button", "btn", "時間遡行を発動する");
+    confirmBtn.onclick = onContinue;
+    box.appendChild(confirmBtn);
+    const cancelBtn = el("button", "btn ghost", "キャンセル");
+    cancelBtn.onclick = onCancel;
+    box.appendChild(cancelBtn);
+    modal.appendChild(box);
+    return;
   } else {
     box.appendChild(el("h2", null, `${state.day}日目 終了処理`));
     box.appendChild(el("p", "flavor", "職員の雇用・改名を行い、準備ができたら次の日へ進んでください。"));
@@ -604,6 +666,47 @@ export function renderDayEndScreen(state, dayEndState, { onHire, onRename, onCon
   contBtn.onclick = onContinue;
   box.appendChild(contBtn);
   if (!canContinue) box.appendChild(el("p", "info-row", "※ 稼働可能な職員が1人もいないため進められない"));
+
+  modal.appendChild(box);
+}
+
+export function renderCodexModal(state, isOpen, { onClose }) {
+  const modal = document.getElementById("codex-modal");
+  if (!isOpen) {
+    modal.classList.add("hidden");
+    modal.innerHTML = "";
+    return;
+  }
+  modal.classList.remove("hidden");
+  modal.innerHTML = "";
+
+  const box = el("div", "modal-box");
+  box.appendChild(el("h2", null, "図鑑（これまでに観測した幻想体）"));
+
+  const observed = state.abnormalities.filter((a) => a.unlockedInfo.name);
+  if (observed.length === 0) {
+    box.appendChild(el("p", "flavor", "まだ観測（名前解禁）済みの幻想体がいない。"));
+  } else {
+    const list = el("div", "codex-list");
+    for (const ab of observed) {
+      const row = el("div", "codex-row");
+      row.appendChild(rankIcon(ab.rank, "icon-md"));
+      const info = el("div", "name-wrap");
+      const head = el("div", "card-head");
+      head.appendChild(rankBadge(ab.rank));
+      head.appendChild(el("span", "ab-name", ab.name));
+      info.appendChild(head);
+      info.appendChild(el("p", "flavor", ab.flavor));
+      info.appendChild(el("span", "info-row", `分類: ${ab.classCode} ／ 属性: ${ab.damageType} ／ ${ab.breachType === "escape" ? "脱走型" : "能力発動型"}`));
+      row.appendChild(info);
+      list.appendChild(row);
+    }
+    box.appendChild(list);
+  }
+
+  const closeBtn = el("button", "btn ghost", "閉じる");
+  closeBtn.onclick = onClose;
+  box.appendChild(closeBtn);
 
   modal.appendChild(box);
 }
