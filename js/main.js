@@ -65,6 +65,8 @@ let qliphothAcc = 0;
 let trialAcc = 0;
 let regenAcc = 0;
 let combatAcc = 0;
+let ctRefreshAcc = 0; // CT（クールタイム）表示を古いまま放置しないための軽量リフレッシュ用
+const CT_REFRESH_MS = 2500; // 短すぎるとプルダウン操作中に再描画が割り込みやすくなるため、余裕を持たせる
 let masterTimer = null;
 
 function isPaused() {
@@ -406,19 +408,34 @@ function masterTick() {
     qliphothAcc += delta;
     trialAcc += delta;
     regenAcc += delta;
+    ctRefreshAcc += delta;
+    let changed = false;
     if (qliphothAcc >= QLIPHOTH_TICK_MS) {
       qliphothAcc -= QLIPHOTH_TICK_MS;
       doQliphothTick();
+      changed = true;
     }
     if (!combatSession && !state.trialTriggeredToday && trialAcc >= TRIAL_INTERVAL_MS) {
       trialAcc -= TRIAL_INTERVAL_MS;
       doTrialTick();
+      changed = true;
     }
     if (regenAcc >= REGEN_TICK_MS) {
       regenAcc -= REGEN_TICK_MS;
       doRegenTick();
+      changed = true;
     }
-    renderAll(); // CT表示などをリアルタイムに更新するため、変化の有無に関わらず描画する
+    if (ctRefreshAcc >= CT_REFRESH_MS) {
+      ctRefreshAcc -= CT_REFRESH_MS;
+      // CT表示を1秒に1回だけ強制的に更新する。0.2秒ごとの全再描画は
+      // プルダウンを開こうとした瞬間に閉じてしまう原因になるため避けつつ、
+      // CTが切れた後もボタンが無効なまま放置されることのないようにする。
+      changed = true;
+    }
+    // 何かが実際に変化した時だけ再描画する。毎ティック無条件に描画すると、
+    // 職員/作業のプルダウンを開こうとした瞬間にDOMごと作り直されて
+    // 選択メニューが閉じてしまう（「一瞬表示されてすぐ消える」）問題が起きるため。
+    if (changed) renderAll();
   } else if (combatSession.started && !combatSession.finished) {
     combatAcc += delta;
     while (combatAcc >= COMBAT_TICK_MS) {
