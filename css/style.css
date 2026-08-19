@@ -188,6 +188,64 @@ body {
 .ab-tier-grid .intro-line { font-size: calc(0.76rem * var(--tier-scale, 1)); }
 .ab-tier-grid .flavor { font-size: calc(0.78rem * var(--tier-scale, 1)); }
 
+/* ── 施設フロア（WASD探索ビュー） ── */
+.hud-hint { font-size: 0.72rem; color: var(--muted); }
+
+#facility-viewport {
+  position: relative;
+  width: 100%;
+  height: 70vh;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: #0d0e13;
+  background-image: url("../assets/corridor_tile.svg");
+  background-size: 64px 64px;
+  cursor: default;
+}
+
+#facility-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: repeat(6, 132px);
+  grid-auto-rows: 172px;
+  gap: 18px;
+  padding: 36px;
+  will-change: transform;
+}
+
+.room {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  user-select: none;
+}
+.room-nameplate {
+  width: 100%;
+  background: #14161d;
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.68rem;
+  padding: 3px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.room-nameplate:hover { border-color: var(--accent2); color: var(--accent2); }
+.room-door { cursor: pointer; transition: transform 0.15s ease; line-height: 0; }
+.room-door:hover { transform: translateY(-2px); }
+.room-door svg { display: block; }
+.room.room-breached .room-door svg rect:first-of-type { animation: pulse-danger 1.2s infinite; }
+.room-no { font-size: 0.62rem; color: var(--muted); }
+
+.avatar-md, .avatar-lg, .avatar-sm { line-height: 0; display: inline-block; flex-shrink: 0; }
+.avatar-lg svg, .avatar-md svg, .avatar-sm svg { display: block; }
+
 /* ── 職員パネル: ボタン式アコーディオン ── */
 .staff-list {
   max-height: 70vh;
@@ -387,6 +445,30 @@ select {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.diary-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.diary-entry {
+  background: #14161d;
+  border-left: 3px solid var(--accent2);
+  border-radius: 0 4px 4px 0;
+  padding: 8px 10px;
+}
+.diary-entry-head {
+  font-size: 0.72rem;
+  color: var(--accent2);
+  letter-spacing: 0.05em;
+  margin-bottom: 3px;
+}
+.diary-entry-text {
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--text);
 }
 
 .unlock-row {
