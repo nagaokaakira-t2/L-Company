@@ -108,6 +108,80 @@ export function classificationCode(id) {
   return `${origin}-${type}-${String(serial).padStart(2, "0")}`;
 }
 
+export function typeCodeOf(id) {
+  const c = CLASS_CODE[id];
+  return c ? c[1] : "09";
+}
+
+// ============================================================
+// クリフォト減衰パターン
+// 幻想体ごとに「クリフォト（暴走までの猶予）が時間経過でどう減っていくか」を
+// 変える。IDのハッシュ値で決定的に振り分けるため、手作業で46体分を
+// 個別設定する必要がなく、複数体が同じパターンを共有しても構わない
+// （ユーザー要望どおり「一部同じでも構わない」）。
+// ============================================================
+export const QLIPHOTH_DECAY_TYPES = ["TIME", "TIME_SLOW", "TIME_BURST", "MOOD_LINKED", "RANDOM", "NEGLECT"];
+
+export const QLIPHOTH_DECAY_LABEL = {
+  TIME: "定常（毎回一定量減少）",
+  TIME_SLOW: "緩慢（2回に1回だけ減少）",
+  TIME_BURST: "断続的（稀に大きく減少する）",
+  MOOD_LINKED: "機嫌依存（機嫌が低い間のみ減少）",
+  RANDOM: "不規則（減少するか毎回運次第）",
+  NEGLECT: "放置厳禁（長時間放置すると急減）",
+};
+
+export function getQliphothDecayType(ab) {
+  if (ab.qliphothDecayOverride) return ab.qliphothDecayOverride;
+  return QLIPHOTH_DECAY_TYPES[hashString(ab.id + "_decay") % QLIPHOTH_DECAY_TYPES.length];
+}
+
+// ============================================================
+// L社 観測日記
+// 観測（名前解禁）・管理マニュアル解禁の進行度に応じて日記のエントリが増える。
+// テンプレート文＋実データ（好む/苦手な作業、脱走種別、クリフォト減衰パターンなど）
+// を組み合わせて生成するため、46体分を一から手書きしなくても個体差のある
+// 文面になる。
+// ============================================================
+const DIARY_STAGE1_POOL = [
+  "収容手続きを完了。当面は分類番号のみでの管理とする。",
+  "初期観測記録：詳細は依然として不明だが、担当職員から複数の報告が上がっている。",
+  "受け入れ直後のため、目立った接触記録はまだ乏しい。",
+  "本記録は今後の観測進行に伴って随時更新される予定である。",
+];
+
+function diaryStage2(ab) {
+  return `観測の結果、${ab.name}は「${WORK_LABEL[ab.preferredWork]}」の作業時に比較的落ち着いた反応を見せることが確認された。`;
+}
+
+function diaryStage3(ab) {
+  const breachNote =
+    ab.breachType === BREACH_TYPE.ESCAPE
+      ? "機嫌を著しく損ねた場合、収容室からの逸脱が想定される。"
+      : "機嫌を著しく損ねた場合、収容室内からの干渉現象が想定される。";
+  return `管理マニュアルによれば、「${WORK_LABEL[ab.dislikedWork]}」の作業は本個体を強く刺激する。${breachNote}`;
+}
+
+function diaryStage4(ab) {
+  const decayDesc = QLIPHOTH_DECAY_LABEL[getQliphothDecayType(ab)];
+  return `長期観測の結果、クリフォト減衰パターンは「${decayDesc}」に分類されることが判明した。管理者は留意されたい。`;
+}
+
+/**
+ * 観測進行度に応じたL社観測日記のエントリ一覧を返す
+ */
+export function getObservationDiary(ab) {
+  const entries = [{ entryNo: 1, text: DIARY_STAGE1_POOL[hashString(ab.id) % DIARY_STAGE1_POOL.length] }];
+  if (ab.unlockedInfo.name) {
+    entries.push({ entryNo: 2, text: diaryStage2(ab) });
+  }
+  if (ab.unlockedInfo.manual) {
+    entries.push({ entryNo: 3, text: diaryStage3(ab) });
+    entries.push({ entryNo: 4, text: diaryStage4(ab) });
+  }
+  return entries;
+}
+
 // 観測（名前解禁）前に表示する3行の紹介文を組み立てる
 const BREACH_INTRO_LINE = {
   [BREACH_TYPE.ESCAPE]: "収容区画外への逸脱傾向を確認。接触時は要注意。",
@@ -498,5 +572,6 @@ export function instantiateAbnormality(id) {
     workCooldownUntil: 0, // 作業CT（幻想体側）
     egoExtractedWeaponCount: 0,
     egoExtractedArmorCount: 0,
+    ticksSinceLastWork: 0, // クリフォト減衰パターン「放置厳禁」用のカウンタ
   };
 }
