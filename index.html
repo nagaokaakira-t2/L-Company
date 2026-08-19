@@ -28,9 +28,14 @@
   <div id="gameover-banner" class="hidden"></div>
 
   <main id="layout">
-    <section id="abnormality-panel" class="panel">
-      <h2>幻想体（アブノーマリティ）</h2>
-      <div id="abnormality-list" class="ab-list"></div>
+    <section id="facility-panel" class="panel">
+      <div class="panel-head-row">
+        <h2>施設フロア（WASDで視点移動）</h2>
+        <span class="hud-hint">収容室クリック＝作業／名札クリック＝観測情報</span>
+      </div>
+      <div id="facility-viewport">
+        <div id="facility-world"></div>
+      </div>
     </section>
 
     <section id="staff-panel" class="panel">
@@ -49,6 +54,7 @@
     <div id="log-box" class="log"></div>
   </section>
 
+  <div id="room-assign-modal" class="modal hidden"></div>
   <div id="detail-modal" class="modal hidden"></div>
   <div id="combat-modal" class="modal hidden"></div>
   <div id="candidate-modal" class="modal hidden"></div>
