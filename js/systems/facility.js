@@ -4,7 +4,7 @@
 // ============================================================
 
 import { grantWorkExperience, restStaff, getArmorRank, getArmorResistance } from "../data/staff.js";
-import { ABNORMALITY_POOL, instantiateAbnormality, getPeBoxConfig } from "../data/abnormalities.js";
+import { ABNORMALITY_POOL, instantiateAbnormality, getPeBoxConfig, getQliphothDecayType } from "../data/abnormalities.js";
 import { calcAbnormalityToStaffDamage, RANK_VALUE } from "./damage.js";
 import { unlockCost, egoExtractCost, egoMaxCount } from "../data/ego.js";
 
@@ -147,6 +147,7 @@ export function performWork(state, staffId, abnormalityId, workType, now = Date.
 
   ab.mood = clamp(ab.mood + moodDelta, 0, ab.maxMood);
   ab.qliphoth = clamp(ab.qliphoth + qliphothDelta, 0, ab.qliphothMax);
+  ab.ticksSinceLastWork = 0; // 作業を受けたので「放置厳禁」パターン用カウンタをリセット
   ab.infoPoints += infoGain;
   state.energy += energyGained;
 
@@ -259,12 +260,40 @@ export function triggerBreach(state, ab) {
 }
 
 /**
- * 時間経過（1ティック）: 未対応の幻想体のクリフォトを減らす
+ * 時間経過（1ティック）: 幻想体ごとの「クリフォト減衰パターン」に従って
+ * クリフォトを減らす。パターンは getQliphothDecayType() で個体ごとに決まる。
  */
 export function tickQliphoth(state) {
   for (const ab of state.abnormalities) {
     if (ab.breached) continue;
-    ab.qliphoth -= 1;
+    ab.ticksSinceLastWork = (ab.ticksSinceLastWork || 0) + 1;
+
+    const decayType = getQliphothDecayType(ab);
+    let delta = 0;
+    switch (decayType) {
+      case "TIME_SLOW":
+        delta = ab.ticksSinceLastWork % 2 === 0 ? -1 : 0;
+        break;
+      case "TIME_BURST":
+        delta = Math.random() < 0.3 ? -2 : -1;
+        break;
+      case "MOOD_LINKED":
+        delta = ab.mood < 50 ? -1 : 0;
+        break;
+      case "RANDOM":
+        delta = Math.random() < 0.65 ? -1 : 0;
+        break;
+      case "NEGLECT":
+        delta = ab.ticksSinceLastWork >= 3 ? -2 : 0;
+        break;
+      case "TIME":
+      default:
+        delta = -1;
+    }
+
+    if (delta !== 0) {
+      ab.qliphoth = Math.max(0, ab.qliphoth + delta);
+    }
     if (ab.qliphoth <= 0) {
       triggerBreach(state, ab);
     }
