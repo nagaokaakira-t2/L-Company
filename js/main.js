@@ -28,7 +28,8 @@ import { makeEgoWeaponItem, makeEgoArmorItem } from "./data/ego.js";
 import {
   renderHeader,
   renderLog,
-  renderAbnormalities,
+  renderFacilityMap,
+  renderRoomAssignModal,
   renderStaff,
   renderDetailModal,
   renderCombatModal,
@@ -52,6 +53,13 @@ let uiSelection = {}; // { [abnormalityId]: { staff, work } } — 再描画を�
 let expandedStaffIds = new Set(); // 職員パネルで展開中のID
 let dayEndState = null; // null | { mode: "normal" } | { mode: "recovery" } | { mode: "rewind" }
 let pendingCandidateId = null; // 1日終了時に選んだ次の管理対象（day-end画面を経てendDayに渡す）
+let roomAssignAbnormalityId = null; // 収容室クリックで開いている作業割り当てモーダルの対象
+
+// ── WASD施設探索カメラ ──
+let camX = 0;
+let camY = 0;
+const CAM_SPEED = 7; // px / real frame
+const pressedKeys = new Set();
 
 // 試練（複数波）の進行管理
 let trialQueue = null; // 残りウェーブのランク配列
@@ -87,11 +95,16 @@ function checkGameOver() {
 function renderAll() {
   renderHeader(state);
   renderLog(state);
-  renderAbnormalities(state, {
-    onWork: handleWork,
+  renderFacilityMap(state, {
     onOpenDetail: handleOpenDetail,
+    onOpenAssign: handleOpenRoomAssign,
+  });
+  applyCameraTransform(); // 再構築でtransformが失われるため、内容再描画のたびにカメラ位置を再適用する
+  renderRoomAssignModal(state, roomAssignAbnormalityId, {
     selection: uiSelection,
     onSelectionChange: handleSelectionChange,
+    onWork: handleWork,
+    onClose: handleCloseRoomAssign,
     now: virtualNow,
   });
   renderStaff(state, {
@@ -118,7 +131,66 @@ function renderAll() {
   renderGameOverBanner(state);
 }
 
+// ───────── WASD施設探索カメラ ─────────
+
+function applyCameraTransform() {
+  const world = document.getElementById("facility-world");
+  if (world) world.style.transform = `translate(${-camX}px, ${-camY}px)`;
+}
+
+function cameraLoop() {
+  requestAnimationFrame(cameraLoop);
+  if (pressedKeys.size === 0) return;
+  // モーダルが開いている間やテキスト入力中はカメラを動かさない
+  const active = document.activeElement;
+  if (active && (active.tagName === "INPUT" || active.tagName === "SELECT" || active.tagName === "TEXTAREA")) return;
+
+  let dx = 0;
+  let dy = 0;
+  if (pressedKeys.has("w")) dy -= CAM_SPEED;
+  if (pressedKeys.has("s")) dy += CAM_SPEED;
+  if (pressedKeys.has("a")) dx -= CAM_SPEED;
+  if (pressedKeys.has("d")) dx += CAM_SPEED;
+  if (dx === 0 && dy === 0) return;
+
+  const viewport = document.getElementById("facility-viewport");
+  const world = document.getElementById("facility-world");
+  if (!viewport || !world) return;
+  const maxX = Math.max(0, world.scrollWidth - viewport.clientWidth);
+  const maxY = Math.max(0, world.scrollHeight - viewport.clientHeight);
+  camX = Math.min(maxX, Math.max(0, camX + dx));
+  camY = Math.min(maxY, Math.max(0, camY + dy));
+  applyCameraTransform();
+}
+
+function setupWasdControls() {
+  window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    if (key === "w" || key === "a" || key === "s" || key === "d") {
+      const active = document.activeElement;
+      const typing = active && (active.tagName === "INPUT" || active.tagName === "SELECT" || active.tagName === "TEXTAREA");
+      if (!typing) e.preventDefault();
+      pressedKeys.add(key);
+    }
+  });
+  window.addEventListener("keyup", (e) => {
+    pressedKeys.delete(e.key.toLowerCase());
+  });
+  window.addEventListener("blur", () => pressedKeys.clear());
+  requestAnimationFrame(cameraLoop);
+}
+
 // ───────── イベントハンドラ ─────────
+
+function handleOpenRoomAssign(abnormalityId) {
+  roomAssignAbnormalityId = abnormalityId;
+  renderAll();
+}
+
+function handleCloseRoomAssign() {
+  roomAssignAbnormalityId = null;
+  renderAll();
+}
 
 function handleSelectionChange(abnormalityId, field, value) {
   uiSelection[abnormalityId] = { ...uiSelection[abnormalityId], [field]: value };
@@ -139,6 +211,7 @@ function handleWork(staffId, abnormalityId, workType) {
   }
   const ab = state.abnormalities.find((a) => a.id === abnormalityId);
   if (ab && ab.breached && !combatSession) {
+    if (roomAssignAbnormalityId === abnormalityId) roomAssignAbnormalityId = null;
     openCombatSetup(ab);
   }
   renderAll();
@@ -476,6 +549,7 @@ function init() {
   document.getElementById("speed-4x-btn").onclick = () => handleSetSpeed(4);
 
   masterTimer = setInterval(masterTick, REAL_TICK_MS);
+  setupWasdControls();
   renderAll();
 }
 
