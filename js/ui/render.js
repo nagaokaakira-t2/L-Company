@@ -3,10 +3,11 @@
 // DOM描画専用モジュール（フレームワーク不使用の素朴なレンダラー）
 // ============================================================
 
-import { WORK_TYPES, WORK_LABEL, classificationCode, getIntroLines } from "../data/abnormalities.js";
+import { WORK_TYPES, WORK_LABEL, classificationCode, getIntroLines, getObservationDiary, getQliphothDecayType, QLIPHOTH_DECAY_LABEL } from "../data/abnormalities.js";
 import { STAT_LABEL, statTotal } from "../data/staff.js";
 import { RANK_VALUE } from "../systems/damage.js";
 import { unlockCost, egoExtractCost, egoMaxCount } from "../data/ego.js";
+import { buildDoorSVG, buildStaffAvatarSVG } from "./roomArt.js";
 
 const RANK_COLOR = {
   ZAYIN: "#6fae6f",
@@ -53,6 +54,14 @@ function img(src, cls, alt) {
   return i;
 }
 
+// buildDoorSVG/buildStaffAvatarSVGなど、SVGマークアップ文字列をインライン要素として埋め込む
+function inlineSvg(markup, cls) {
+  const wrap = document.createElement("div");
+  if (cls) wrap.className = cls;
+  wrap.innerHTML = markup.trim();
+  return wrap;
+}
+
 function rankBadge(rank) {
   const b = el("span", "rank-badge", rank);
   b.style.background = RANK_COLOR[rank] || "#888";
@@ -95,6 +104,133 @@ export function renderLog(state) {
 
 const TIER_CAPACITY = 10; // 1段あたりの収容数（5体 × 2列）
 const TIER_LABELS = ["収容区画 上段", "収容区画 下段", "収容区画 下段2", "収容区画 下段3", "収容区画 下段4"];
+
+const TYPE_LABEL = {
+  "01": "人型", "02": "動物・生物型", "03": "宗教・抽象・無機物",
+  "04": "植物・昆虫型", "05": "機械・アーティファクト型", "06": "不定形・粘体型", "09": "ツール型",
+};
+
+/**
+ * 施設マップ（WASD探索ビュー）の収容室グリッドを構築する。
+ * カメラのtransformはmain.js側が別途適用するため、ここでは中身の再構築のみを行う。
+ */
+export function renderFacilityMap(state, { onOpenDetail, onOpenAssign }) {
+  const world = document.getElementById("facility-world");
+  world.innerHTML = "";
+
+  state.abnormalities.forEach((ab, idx) => {
+    const observed = ab.unlockedInfo.name;
+    const room = el("div", "room" + (ab.breached ? " room-breached" : ""));
+    room.dataset.abId = ab.id;
+
+    const nameplate = el("button", "room-nameplate", observed ? ab.name : ab.classCode);
+    nameplate.title = "クリックで観測情報を見る";
+    nameplate.onclick = () => onOpenDetail(ab.id);
+    room.appendChild(nameplate);
+
+    const door = inlineSvg(buildDoorSVG(ab, { size: 108 }), "room-door");
+    door.title = ab.breached ? "暴走中" : "クリックで作業を割り当てる";
+    door.onclick = () => onOpenAssign(ab.id);
+    room.appendChild(door);
+
+    const roomNo = el("div", "room-no", `No.${String(idx + 1).padStart(2, "0")}`);
+    room.appendChild(roomNo);
+
+    world.appendChild(room);
+  });
+}
+
+/**
+ * 収容室クリックで開く簡易作業割り当てモーダル
+ */
+export function renderRoomAssignModal(state, abnormalityId, { selection, onSelectionChange, onWork, onClose, now }) {
+  const modal = document.getElementById("room-assign-modal");
+  if (!abnormalityId) {
+    modal.classList.add("hidden");
+    modal.innerHTML = "";
+    return;
+  }
+  const ab = state.abnormalities.find((a) => a.id === abnormalityId);
+  if (!ab || ab.breached) {
+    modal.classList.add("hidden");
+    modal.innerHTML = "";
+    return;
+  }
+  modal.classList.remove("hidden");
+  modal.innerHTML = "";
+
+  const clockNow = now ?? Date.now();
+  const abOnCooldown = ab.workCooldownUntil && clockNow < ab.workCooldownUntil;
+
+  const box = el("div", "modal-box");
+  const head = el("div", "card-head");
+  head.appendChild(inlineSvg(buildDoorSVG(ab, { size: 56 }), "avatar-md"));
+  const nameWrap = el("div", "name-wrap");
+  nameWrap.appendChild(rankBadge(ab.rank));
+  nameWrap.appendChild(el("span", "ab-name", ab.unlockedInfo.name ? ab.name : ab.classCode));
+  head.appendChild(nameWrap);
+  box.appendChild(head);
+
+  const moodRow = el("div", "stat-row");
+  moodRow.appendChild(el("span", "stat-label", "機嫌"));
+  moodRow.appendChild(bar(ab.mood, ab.maxMood, "mood"));
+  moodRow.appendChild(el("span", "stat-num", `${ab.mood}/${ab.maxMood}`));
+  box.appendChild(moodRow);
+
+  const qRow = el("div", "stat-row");
+  qRow.appendChild(el("span", "stat-label", "クリフォト"));
+  qRow.appendChild(bar(ab.qliphoth, ab.qliphothMax, "qliphoth"));
+  qRow.appendChild(el("span", "stat-num", `${ab.qliphoth}/${ab.qliphothMax}`));
+  box.appendChild(qRow);
+
+  if (abOnCooldown) {
+    box.appendChild(el("div", "ct-tag", "この幻想体はCT中（作業不可）"));
+  } else {
+    const sel = selection[ab.id] || {};
+    const staffSelect = el("select", "staff-select");
+    for (const s of state.staffList) {
+      if (!s.alive || !s.sane) continue;
+      const onCooldown = s.workCooldownUntil && clockNow < s.workCooldownUntil;
+      const opt = el("option", null, `${s.name} (Lv${s.level})${onCooldown ? "［CT］" : ""}`);
+      opt.value = s.id;
+      if (onCooldown) opt.disabled = true;
+      staffSelect.appendChild(opt);
+    }
+    if (sel.staff && staffSelect.querySelector(`option[value="${sel.staff}"]`)) {
+      staffSelect.value = sel.staff;
+    }
+    staffSelect.onchange = () => onSelectionChange(ab.id, "staff", staffSelect.value);
+
+    const workSelect = el("select", "work-select");
+    for (const w of WORK_TYPES) {
+      const opt = el("option", null, WORK_LABEL[w]);
+      opt.value = w;
+      if (ab.unlockedInfo.name && w === ab.preferredWork) opt.textContent += " ◎";
+      if (ab.unlockedInfo.manual && w === ab.dislikedWork) opt.textContent += " ×";
+      workSelect.appendChild(opt);
+    }
+    if (sel.work) workSelect.value = sel.work;
+    workSelect.onchange = () => onSelectionChange(ab.id, "work", workSelect.value);
+
+    const workBtn = el("button", "btn small", "作業実行");
+    workBtn.onclick = () => {
+      if (!staffSelect.value) return;
+      onWork(staffSelect.value, ab.id, workSelect.value);
+    };
+
+    const controls = el("div", "controls");
+    controls.appendChild(staffSelect);
+    controls.appendChild(workSelect);
+    controls.appendChild(workBtn);
+    box.appendChild(controls);
+  }
+
+  const closeBtn = el("button", "btn ghost", "閉じる");
+  closeBtn.onclick = onClose;
+  box.appendChild(closeBtn);
+
+  modal.appendChild(box);
+}
 
 export function renderAbnormalities(state, { onWork, onOpenDetail, selection, onSelectionChange, now }) {
   const container = document.getElementById("abnormality-list");
@@ -244,7 +380,7 @@ export function renderStaff(state, { onEquipWeapon, onEquipArmor, expandedIds, o
     );
 
     const toggleBtn = el("button", "staff-toggle-btn");
-    toggleBtn.appendChild(img("assets/staff_avatar.svg", "icon-md"));
+    toggleBtn.appendChild(inlineSvg(buildStaffAvatarSVG(s, { size: 36 }), "avatar-md"));
     const label = el("span", "staff-toggle-label");
     label.appendChild(el("span", "ab-name", s.name));
     label.appendChild(el("span", "lv-badge", `Lv${s.level}`));
@@ -379,7 +515,7 @@ export function renderDetailModal(state, abnormalityId, { onUnlock, onExtract, o
   const observed = ab.unlockedInfo.name;
   const box = el("div", "modal-box");
   const head = el("div", "card-head");
-  head.appendChild(rankIconOrUnknown(ab, "icon-xl"));
+  head.appendChild(inlineSvg(buildDoorSVG(ab, { size: 64 }), "avatar-lg"));
   const nameWrap = el("div", "name-wrap");
   if (observed) {
     nameWrap.appendChild(rankBadge(ab.rank));
@@ -413,6 +549,21 @@ export function renderDetailModal(state, abnormalityId, { onUnlock, onExtract, o
   } else {
     box.appendChild(el("p", "info-row", "作業傾向は未観測（名前の解禁が必要）"));
   }
+  if (ab.unlockedInfo.manual) {
+    const decayLabel = QLIPHOTH_DECAY_LABEL[getQliphothDecayType(ab)];
+    box.appendChild(el("p", "info-row", `クリフォト減衰パターン: ${decayLabel}`));
+  }
+
+  // ── L社 観測日記 ──
+  box.appendChild(el("h3", null, "L社 観測日記"));
+  const diaryBox = el("div", "diary-box");
+  for (const entry of getObservationDiary(ab)) {
+    const entryEl = el("div", "diary-entry");
+    entryEl.appendChild(el("div", "diary-entry-head", `観測記録 #${entry.entryNo}`));
+    entryEl.appendChild(el("div", "diary-entry-text", entry.text));
+    diaryBox.appendChild(entryEl);
+  }
+  box.appendChild(diaryBox);
 
   // ── 情報開示 ──
   box.appendChild(el("h3", null, "情報開示"));
@@ -640,7 +791,7 @@ export function renderDayEndScreen(state, dayEndState, { onHire, onRename, onCon
   const staffListEl = el("div", "dayend-staff-list");
   for (const s of state.staffList) {
     const row = el("div", "dayend-staff-row");
-    row.appendChild(img("assets/staff_avatar.svg", "icon-sm"));
+    row.appendChild(inlineSvg(buildStaffAvatarSVG(s, { size: 26 }), "avatar-sm"));
     if (s.alive) {
       const input = document.createElement("input");
       input.type = "text";
